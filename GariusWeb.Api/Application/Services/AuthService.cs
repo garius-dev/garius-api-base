@@ -36,7 +36,8 @@ namespace GariusWeb.Api.Application.Services
                 Email = request.Email,
                 FirstName = request.FirstName,
                 LastName = request.LastName,
-                IsExternalLogin = false
+                IsExternalLogin = false,
+                IsActive = true
             };
 
             var result = await _userManager.CreateAsync(user, request.Password);

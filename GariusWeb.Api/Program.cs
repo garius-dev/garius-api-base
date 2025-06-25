@@ -9,12 +9,16 @@ using GariusWeb.Api.Infrastructure.Middleware;
 using GariusWeb.Api.Infrastructure.Services;
 using GariusWeb.Api.Swagger;
 using Google;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Events;
 using Swashbuckle.AspNetCore.SwaggerGen;
+using System;
+using System.Text;
 using static GariusWeb.Api.Configuration.AppSecrets;
 
 Log.Logger = new LoggerConfiguration()
@@ -30,7 +34,7 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog();
 
-// --- Configuraçãodo Swagger ---
+// --- Configuração do Swagger ---
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.ConfigureOptions<ConfigureSwaggerOptions>();
@@ -102,6 +106,37 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
+// --- CONFIGURAÇÃO DO JWT ---
+builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    var jwtConfig = secretConfig.GetSection("JwtSettings").Get<JwtSettings>()!;
+    options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
+    options.SaveToken = true;
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuer = true,
+        ValidateAudience = true,
+        ValidateLifetime = true,
+        ValidateIssuerSigningKey = true,
+        ValidIssuer = jwtConfig.Issuer,
+        ValidAudience = jwtConfig.Audience,
+        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtConfig.Secret)),
+        ClockSkew = TimeSpan.Zero
+    };
+})
+.AddCookie(options =>
+{
+    options.LoginPath = "/api/v1/auth/login";
+    options.AccessDeniedPath = "/api/v1/auth/access-denied";
+});
+
 // --- CONFIGURAÇÃO DO RESEND ---
 builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
 
@@ -138,6 +173,8 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
+app.UseCustomCors();
 
 app.UseAuthentication();
 app.UseAuthorization();

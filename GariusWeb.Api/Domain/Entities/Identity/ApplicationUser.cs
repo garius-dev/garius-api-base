@@ -11,7 +11,7 @@ namespace GariusWeb.Api.Domain.Entities.Identity
         public DateTime? UpdatedAt { get; set; }
 
         public bool IsExternalLogin { get; set; }
-        public bool IsActive { get; set; }
+        public bool IsActive { get; set; } = true;
         public string? ExternalProvider { get; set; } // Google, Microsoft
 
         public Guid? TenantId { get; set; } // futuro suporte a SaaS
