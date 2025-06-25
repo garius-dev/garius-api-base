@@ -135,6 +135,24 @@ builder.Services.AddAuthentication(options =>
 {
     options.LoginPath = "/api/v1/auth/login";
     options.AccessDeniedPath = "/api/v1/auth/access-denied";
+})
+.AddGoogle("Google", options =>
+{
+    var google = secretConfig.GetSection("Google").Get<GoogleExternalAuthSettings>()!;
+    options.ClientId = google.ClientId;
+    options.ClientSecret = google.ClientSecret;
+    options.SaveTokens = true;
+    options.CallbackPath = "/signin-google";
+    options.Scope.Add("profile");
+    options.Scope.Add("email");
+})
+.AddMicrosoftAccount("Microsoft", options =>
+{
+    var ms = secretConfig.GetSection("Microsoft").Get<MicrosoftExternalAuthSettings>()!;
+    options.ClientId = ms.ClientId;
+    options.ClientSecret = ms.ClientSecret;
+    options.SaveTokens = true;
+    options.CallbackPath = "/signin-microsoft";
 });
 
 // --- CONFIGURAÇÃO DO RESEND ---

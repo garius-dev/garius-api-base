@@ -18,18 +18,25 @@ namespace GariusWeb.Api.Infrastructure.Services
             _jwtSettings = jwtSettings.Value;
         }
 
-        public string GenerateToken(ApplicationUser user, IList<string> roles)
+        public string GenerateToken(ApplicationUser user, IList<string> roles, IList<Claim>? additionalClaims = null)
         {
             var claims = new List<Claim>
-        {
-            new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-            new(JwtRegisteredClaimNames.Email, user.Email!),
-            new(ClaimTypes.Name, user.UserName ?? user.Email ?? user.Id.ToString()),
-            new("firstName", user.FirstName ?? string.Empty),
-            new("lastName", user.LastName ?? string.Empty)
-        };
+            {
+                new(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+                new(JwtRegisteredClaimNames.Email, user.Email!),
+                new(ClaimTypes.Name, user.UserName ?? user.Email ?? user.Id.ToString()),
+                new("firstName", user.FirstName ?? string.Empty),
+                new("lastName", user.LastName ?? string.Empty)
+            };
 
+            // Adiciona roles
             claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+
+            // Adiciona claims personalizadas, se houver
+            if (additionalClaims != null)
+            {
+                claims.AddRange(additionalClaims);
+            }
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_jwtSettings.Secret));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);

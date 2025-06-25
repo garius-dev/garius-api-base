@@ -8,6 +8,7 @@ namespace GariusWeb.Api.Application.Interfaces
     {
         Task RegisterAsync(RegisterRequest request);
         Task<string> LoginAsync(LoginRequest request);
+        Task<string> ExternalLoginCallbackAsync();
         Task ConfirmEmailAsync(string userId, string token);
         Task ForgotPasswordAsync(ForgotPasswordRequest request);
         Task ResetPasswordAsync(ResetPasswordRequest request);

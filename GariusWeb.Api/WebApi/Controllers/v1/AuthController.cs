@@ -2,6 +2,8 @@
 using GariusWeb.Api.Application.Dtos.Auth;
 using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Helpers;
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
@@ -37,6 +39,23 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
 
             var token = await _authService.LoginAsync(request);
             return Ok(ApiResponse<string>.Ok(token, "Login realizado com sucesso"));
+        }
+
+        [HttpGet("external-login/{provider}")]
+        [AllowAnonymous]
+        public IActionResult ExternalLogin(string provider, [FromQuery] string returnUrl = "/")
+        {
+            var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", new { returnUrl })!;
+            var properties = new AuthenticationProperties { RedirectUri = redirectUrl };
+            return Challenge(properties, provider);
+        }
+
+        [HttpGet("external-callback")]
+        [AllowAnonymous]
+        public async Task<IActionResult> ExternalCallback([FromQuery] string returnUrl = "/")
+        {
+            var token = await _authService.ExternalLoginCallbackAsync();
+            return Redirect($"{returnUrl}?token={token}");
         }
 
         [HttpGet("confirm-email")]

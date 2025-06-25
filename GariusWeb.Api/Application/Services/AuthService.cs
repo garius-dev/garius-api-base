@@ -2,8 +2,10 @@
 using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Domain.Entities.Identity;
+using GariusWeb.Api.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
+using System.Security.Claims;
 using System.Web;
 using static GariusWeb.Api.Configuration.AppSecrets;
 
@@ -12,16 +14,22 @@ namespace GariusWeb.Api.Application.Services
     public class AuthService : IAuthService
     {
         private readonly UserManager<ApplicationUser> _userManager;
+        private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IEmailSender _emailSender;
         private readonly JwtSettings _jwtSettings;
+        private readonly JwtTokenGenerator _jwtTokenGenerator;
 
         public AuthService(UserManager<ApplicationUser> userManager,
                        IEmailSender emailSender,
-                       IOptions<JwtSettings> jwtSettings)
+                       IOptions<JwtSettings> jwtSettings,
+                       JwtTokenGenerator jwtTokenGenerator,
+                       SignInManager<ApplicationUser> signInManager)
         {
             _userManager = userManager;
             _emailSender = emailSender;
             _jwtSettings = jwtSettings.Value;
+            _jwtTokenGenerator = jwtTokenGenerator;
+            _signInManager = signInManager;
         }
 
         public async Task RegisterAsync(RegisterRequest request)
@@ -64,16 +72,60 @@ namespace GariusWeb.Api.Application.Services
             if (!await _userManager.IsEmailConfirmedAsync(user))
                 throw new UnauthorizedAccessAppException("Email ainda não confirmado.");
 
-            if (!await _userManager.CheckPasswordAsync(user, request.Password))
+            var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
+
+            if (!result.Succeeded)
             {
-                await _userManager.AccessFailedAsync(user);
-                throw new UnauthorizedAccessAppException("Senha inválida.");
+                throw new UnauthorizedAccessException("Credenciais inválidas.");
             }
 
             await _userManager.ResetAccessFailedCountAsync(user);
 
+            // Obter as roles do usuário
+            var roles = await _userManager.GetRolesAsync(user);
+            var claims = await _userManager.GetClaimsAsync(user);
+
             // Em breve: gerar JWT aqui
-            return "JWT-TOKEN-AQUI";
+            return _jwtTokenGenerator.GenerateToken(user, roles, claims);
+        }
+
+        public async Task<string> ExternalLoginCallbackAsync()
+        {
+            var info = await _signInManager.GetExternalLoginInfoAsync();
+
+            if (info == null)
+                throw new ValidationException("Não foi possível obter informações do provedor externo.");
+
+            var email = info.Principal.FindFirstValue(ClaimTypes.Email);
+            if (string.IsNullOrEmpty(email))
+                throw new ValidationException("E-mail não fornecido pelo provedor externo.");
+
+            var user = await _userManager.FindByEmailAsync(email);
+
+            if (user == null)
+            {
+                user = new ApplicationUser
+                {
+                    UserName = email,
+                    Email = email,
+                    EmailConfirmed = true,
+                    IsExternalLogin = true,
+                    ExternalProvider = info.LoginProvider,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                var result = await _userManager.CreateAsync(user);
+                if (!result.Succeeded)
+                    throw new ValidationException("Erro ao criar usuário externo.");
+            }
+
+            if (!user.EmailConfirmed)
+                throw new UnauthorizedAccessException("E-mail não confirmado.");
+
+            var roles = await _userManager.GetRolesAsync(user);
+            var claims = await _userManager.GetClaimsAsync(user);
+
+            return _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
         }
 
         public async Task ConfirmEmailAsync(string userId, string token)
