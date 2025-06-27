@@ -17,12 +17,12 @@ namespace GariusWeb.Api.Application.Services
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IEmailSender _emailSender;
         private readonly JwtSettings _jwtSettings;
-        private readonly JwtTokenGenerator _jwtTokenGenerator;
+        private readonly IJwtTokenGenerator _jwtTokenGenerator;
 
         public AuthService(UserManager<ApplicationUser> userManager,
                        IEmailSender emailSender,
                        IOptions<JwtSettings> jwtSettings,
-                       JwtTokenGenerator jwtTokenGenerator,
+                       IJwtTokenGenerator jwtTokenGenerator,
                        SignInManager<ApplicationUser> signInManager)
         {
             _userManager = userManager;

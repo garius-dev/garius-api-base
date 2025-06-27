@@ -9,7 +9,9 @@ using GariusWeb.Api.Infrastructure.Middleware;
 using GariusWeb.Api.Infrastructure.Services;
 using GariusWeb.Api.Swagger;
 using Google;
+using Google.Api;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -109,6 +111,23 @@ builder.Services
 // --- CONFIGURAÇÃO DO JWT ---
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 
+builder.Services.ConfigureApplicationCookie(options =>
+{
+
+    options.LoginPath = "/api/v1/auth/login";
+    options.AccessDeniedPath = "/api/v1/auth/access-denied";
+    options.Cookie.HttpOnly = true;
+    options.Cookie.SameSite = SameSiteMode.None;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+});
+
+builder.Services.ConfigureExternalCookie(options =>
+{
+
+    options.Cookie.SameSite = SameSiteMode.None;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+});
+
 builder.Services.AddAuthentication(options =>
 {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -131,14 +150,11 @@ builder.Services.AddAuthentication(options =>
         ClockSkew = TimeSpan.Zero
     };
 })
-.AddCookie(options =>
-{
-    options.LoginPath = "/api/v1/auth/login";
-    options.AccessDeniedPath = "/api/v1/auth/access-denied";
-})
 .AddGoogle("Google", options =>
 {
-    var google = secretConfig.GetSection("Google").Get<GoogleExternalAuthSettings>()!;
+    var google = secretConfig.GetSection("GoogleExternalAuthSettings").Get<GoogleExternalAuthSettings>()!;
+    options.CorrelationCookie.SameSite = SameSiteMode.None;
+    options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
     options.ClientId = google.ClientId;
     options.ClientSecret = google.ClientSecret;
     options.SaveTokens = true;
@@ -148,29 +164,49 @@ builder.Services.AddAuthentication(options =>
 })
 .AddMicrosoftAccount("Microsoft", options =>
 {
-    var ms = secretConfig.GetSection("Microsoft").Get<MicrosoftExternalAuthSettings>()!;
+    var ms = secretConfig.GetSection("MicrosoftExternalAuthSettings").Get<MicrosoftExternalAuthSettings>()!;
     options.ClientId = ms.ClientId;
     options.ClientSecret = ms.ClientSecret;
     options.SaveTokens = true;
     options.CallbackPath = "/signin-microsoft";
+    options.CorrelationCookie.SameSite = SameSiteMode.None;
+    options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
 });
+
+
 
 // --- CONFIGURAÇÃO DO RESEND ---
 builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
 
+// --- CONFIGURAÇÃO DE SERVIÇOS DE TOKEN ---
+builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
+
 // --- CONFIGURAÇÃO DE SERVIÇOS DE AUTENTICAÇÃO ---
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+
 
 // --- CONFIGURAÇÃO DO CORS ---
 builder.Services.AddCustomCors(builder.Environment);
 
+
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+});
+
 // --- Add services to the container ---
 builder.Services.AddControllers();
+builder.Host.UseSerilog();
 
 var app = builder.Build();
 
+app.UseForwardedHeaders();
+
 // --- Configuração dos Middlewares ---
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+
+app.UseSerilogRequestLogging();
 
 // --- Configure the HTTP request pipeline ---
 var provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
@@ -190,9 +226,11 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-app.UseHttpsRedirection();
+app.UseRouting();
 
 app.UseCustomCors();
+
+app.UseHttpsRedirection();
 
 app.UseAuthentication();
 app.UseAuthorization();

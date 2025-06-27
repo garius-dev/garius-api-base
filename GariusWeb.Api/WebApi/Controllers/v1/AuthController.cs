@@ -1,10 +1,13 @@
 ﻿using Asp.Versioning;
 using GariusWeb.Api.Application.Dtos.Auth;
+using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
+using GariusWeb.Api.Domain.Entities.Identity;
 using GariusWeb.Api.Helpers;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 
 namespace GariusWeb.Api.WebApi.Controllers.v1
@@ -15,10 +18,12 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
     public class AuthController : ControllerBase
     {
         private readonly IAuthService _authService;
+        private readonly SignInManager<ApplicationUser> _signInManager;
 
-        public AuthController(IAuthService authService)
+        public AuthController(IAuthService authService, SignInManager<ApplicationUser> signInManager)
         {
             _authService = authService;
+            _signInManager = signInManager;
         }
 
         [HttpPost("register")]
@@ -45,12 +50,14 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         [AllowAnonymous]
         public IActionResult ExternalLogin(string provider, [FromQuery] string returnUrl = "/")
         {
-            var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", new { returnUrl })!;
-            var properties = new AuthenticationProperties { RedirectUri = redirectUrl };
-            return Challenge(properties, provider);
+            var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", values: null, protocol: Request.Scheme);
+            var properties = _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
+            
+
+            return new ChallengeResult(provider, properties);
         }
 
-        [HttpGet("external-callback")]
+        [HttpGet("signin-google")]
         [AllowAnonymous]
         public async Task<IActionResult> ExternalCallback([FromQuery] string returnUrl = "/")
         {
