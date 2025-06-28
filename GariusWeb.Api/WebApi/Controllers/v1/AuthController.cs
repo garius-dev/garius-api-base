@@ -9,6 +9,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 
 namespace GariusWeb.Api.WebApi.Controllers.v1
 {
@@ -48,21 +49,38 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
 
         [HttpGet("external-login/{provider}")]
         [AllowAnonymous]
-        public IActionResult ExternalLogin(string provider, [FromQuery] string returnUrl = "/")
+        public IActionResult ExternalLogin(string provider, [FromQuery] string transitionUrl, [FromQuery] string returnUrl = "/")
         {
-            var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", values: null, protocol: Request.Scheme);
+            if (string.IsNullOrWhiteSpace(transitionUrl))
+                return BadRequest("transitionUrl é obrigatório e deve ser válido.");
+
+
+            var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", new { returnUrl, transitionUrl }, protocol: Request.Scheme);
             var properties = _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
-            
 
             return new ChallengeResult(provider, properties);
         }
 
-        [HttpGet("signin-google")]
+        [HttpGet("external-login-callback")]
         [AllowAnonymous]
-        public async Task<IActionResult> ExternalCallback([FromQuery] string returnUrl = "/")
+        public async Task<IActionResult> ExternalCallback([FromQuery] string transitionUrl, [FromQuery] string returnUrl = "/")
         {
+            if (string.IsNullOrWhiteSpace(transitionUrl))
+                return BadRequest("transitionUrl é obrigatório e deve ser válido.");
+
             var token = await _authService.ExternalLoginCallbackAsync();
-            return Redirect($"{returnUrl}?token={token}");
+
+            var query = new Dictionary<string, string?>
+            {
+                ["token"] = token
+            };
+
+            if (!string.IsNullOrWhiteSpace(returnUrl))
+                query["returnUrl"] = returnUrl;
+
+            var redirectUrl = QueryHelpers.AddQueryString(transitionUrl, query);
+
+            return Redirect(redirectUrl);
         }
 
         [HttpGet("confirm-email")]

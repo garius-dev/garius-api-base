@@ -10,6 +10,7 @@ using GariusWeb.Api.Infrastructure.Services;
 using GariusWeb.Api.Swagger;
 using Google;
 using Google.Api;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
@@ -111,6 +112,13 @@ builder.Services
 // --- CONFIGURAÇÃO DO JWT ---
 builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 
+builder.Services.Configure<CookieAuthenticationOptions>(IdentityConstants.ExternalScheme, options =>
+{
+    options.Cookie.SameSite = SameSiteMode.None;
+    options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
+    options.Cookie.HttpOnly = true;
+});
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
 
@@ -123,7 +131,6 @@ builder.Services.ConfigureApplicationCookie(options =>
 
 builder.Services.ConfigureExternalCookie(options =>
 {
-
     options.Cookie.SameSite = SameSiteMode.None;
     options.Cookie.SecurePolicy = CookieSecurePolicy.Always;
 });

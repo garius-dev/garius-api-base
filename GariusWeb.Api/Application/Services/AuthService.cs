@@ -106,6 +106,8 @@ namespace GariusWeb.Api.Application.Services
             {
                 user = new ApplicationUser
                 {
+                    FirstName = info.Principal.FindFirstValue(ClaimTypes.GivenName) ?? "Usuário",
+                    LastName = info.Principal.FindFirstValue(ClaimTypes.Surname) ?? "Externo",
                     UserName = email,
                     Email = email,
                     EmailConfirmed = true,
