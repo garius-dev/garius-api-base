@@ -239,6 +239,24 @@ app.UseCustomCors();
 
 app.UseHttpsRedirection();
 
+var policy = new HeaderPolicyCollection()
+    .AddDefaultSecurityHeaders()
+    .RemoveServerHeader()
+    .AddContentSecurityPolicy(policyBuilder =>
+    {
+        policyBuilder.AddDefaultSrc().Self();
+        policyBuilder.AddScriptSrc().Self();
+        policyBuilder.AddStyleSrc().Self().UnsafeInline();
+        policyBuilder.AddImgSrc().Self().Data();
+        policyBuilder.AddFontSrc().Self();
+        policyBuilder.AddConnectSrc().Self();
+        policyBuilder.AddObjectSrc().None();
+        policyBuilder.AddFormAction().Self();
+        policyBuilder.AddFrameAncestors().None();
+    });
+
+app.UseSecurityHeaders(policy);
+
 app.UseAuthentication();
 app.UseAuthorization();
 

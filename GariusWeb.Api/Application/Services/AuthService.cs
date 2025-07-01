@@ -4,6 +4,8 @@ using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Domain.Entities.Identity;
 using GariusWeb.Api.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
 using System.Web;
@@ -89,7 +91,14 @@ namespace GariusWeb.Api.Application.Services
             return _jwtTokenGenerator.GenerateToken(user, roles, claims);
         }
 
-        public async Task<string> ExternalLoginCallbackAsync()
+        public ChallengeResult GetExternalLoginChallangeAsync(string provider, string redirectUrl)
+        {
+            var properties = _signInManager.ConfigureExternalAuthenticationProperties(provider, redirectUrl);
+
+            return new ChallengeResult(provider, properties);
+        }
+
+        public async Task<string> ExternalLoginCallbackAsync(string transitionUrl, string? returnUrl)
         {
             var info = await _signInManager.GetExternalLoginInfoAsync();
 
@@ -97,6 +106,7 @@ namespace GariusWeb.Api.Application.Services
                 throw new ValidationException("Não foi possível obter informações do provedor externo.");
 
             var email = info.Principal.FindFirstValue(ClaimTypes.Email);
+
             if (string.IsNullOrEmpty(email))
                 throw new ValidationException("E-mail não fornecido pelo provedor externo.");
 
@@ -117,6 +127,7 @@ namespace GariusWeb.Api.Application.Services
                 };
 
                 var result = await _userManager.CreateAsync(user);
+
                 if (!result.Succeeded)
                     throw new ValidationException("Erro ao criar usuário externo.");
             }
@@ -127,7 +138,17 @@ namespace GariusWeb.Api.Application.Services
             var roles = await _userManager.GetRolesAsync(user);
             var claims = await _userManager.GetClaimsAsync(user);
 
-            return _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
+            var token = _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
+
+            var query = new Dictionary<string, string?>
+            {
+                ["token"] = token
+            };
+
+            if (!string.IsNullOrWhiteSpace(returnUrl))
+                query["returnUrl"] = returnUrl;
+
+            return QueryHelpers.AddQueryString(transitionUrl, query);
         }
 
         public async Task ConfirmEmailAsync(string userId, string token)
