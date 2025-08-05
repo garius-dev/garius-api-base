@@ -5,6 +5,7 @@ using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace GariusWeb.Api.WebApi.Controllers.v1
 {
@@ -21,6 +22,7 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         }
 
         [HttpPost("register")]
+        [EnableRateLimiting("RegisterPolicy")]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
             if (!ModelState.IsValid)
@@ -31,6 +33,7 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         }
 
         [HttpPost("login")]
+        [EnableRateLimiting("LoginPolicy")]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
             if (!ModelState.IsValid)
@@ -51,9 +54,26 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
             var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", new { returnUrl, transitionUrl }, protocol: Request.Scheme);
 
             if (string.IsNullOrWhiteSpace(redirectUrl))
-                throw new ValidationException("redirectUrl é obrigatório e deve ser válido.");
+                throw new ValidationException("redirectUrl é obrigatóri'o' e deve ser válido.");
 
             return _authService.GetExternalLoginChallangeAsync(provider, redirectUrl);
+        }
+
+        [HttpGet("external-login/{provider}/url")]
+        [AllowAnonymous]
+        public IActionResult GetExternalLoginUrl(string provider, [FromQuery] string transitionUrl, [FromQuery] string returnUrl = "/")
+        {
+            if (string.IsNullOrWhiteSpace(transitionUrl))
+                throw new ValidationException("transitionUrl é obrigatório e deve ser válido.");
+
+            var redirectUrl = Url.Action(nameof(ExternalCallback), "Auth", new { returnUrl, transitionUrl }, protocol: Request.Scheme);
+
+            if (string.IsNullOrWhiteSpace(redirectUrl))
+                throw new ValidationException("redirectUrl é obrigatório e deve ser válido.");
+
+            var loginUrl = _authService.GetExternalLoginUrl(provider, redirectUrl);
+
+            return Ok(ApiResponse<string>.Ok(loginUrl));
         }
 
         [HttpGet("external-login-callback")]

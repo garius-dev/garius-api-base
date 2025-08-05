@@ -2,6 +2,7 @@
 using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Domain.Entities.Identity;
+using GariusWeb.Api.Helpers;
 using GariusWeb.Api.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
@@ -21,17 +22,21 @@ namespace GariusWeb.Api.Application.Services
         private readonly JwtSettings _jwtSettings;
         private readonly IJwtTokenGenerator _jwtTokenGenerator;
 
+        private readonly IHttpContextAccessor _httpContextAccessor;
+
         public AuthService(UserManager<ApplicationUser> userManager,
                        IEmailSender emailSender,
                        IOptions<JwtSettings> jwtSettings,
                        IJwtTokenGenerator jwtTokenGenerator,
-                       SignInManager<ApplicationUser> signInManager)
+                       SignInManager<ApplicationUser> signInManager,
+                       IHttpContextAccessor httpContextAccessor)
         {
             _userManager = userManager;
             _emailSender = emailSender;
             _jwtSettings = jwtSettings.Value;
             _jwtTokenGenerator = jwtTokenGenerator;
             _signInManager = signInManager;
+            _httpContextAccessor = httpContextAccessor;
         }
 
         public async Task RegisterAsync(RegisterRequest request)
@@ -189,5 +194,10 @@ namespace GariusWeb.Api.Application.Services
                     string.Join("; ", result.Errors.Select(e => e.Description)));
         }
 
+        public string GetExternalLoginUrl(string provider, string redirectUrl)
+        {
+            var httpContext = _httpContextAccessor.HttpContext!;
+            return ExternalAuthUrlHelper.GetExternalAuthenticationUrl(httpContext, provider, redirectUrl);
+        }
     }
 }
