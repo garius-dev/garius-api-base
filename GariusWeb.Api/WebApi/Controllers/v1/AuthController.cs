@@ -2,10 +2,12 @@
 using GariusWeb.Api.Application.Dtos.Auth;
 using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
+using GariusWeb.Api.Extensions;
 using GariusWeb.Api.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.Tasks;
 
 namespace GariusWeb.Api.WebApi.Controllers.v1
 {
@@ -19,6 +21,13 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         public AuthController(IAuthService authService)
         {
             _authService = authService;
+        }
+
+        [HttpGet("ping-test")]
+        [AllowAnonymous]
+        public IActionResult Ping()
+        {
+            return Ok(ApiResponse<string>.Ok("Pong!"));
         }
 
         [HttpPost("register")]
@@ -116,6 +125,20 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
             await _authService.ResetPasswordAsync(request);
 
             return Ok(ApiResponse<string>.Ok("Senha redefinida com sucesso"));
+        }
+
+        [HttpPost("create-new-role")]
+        [Authorize(Roles = "Developer")]
+        public async Task<IActionResult> CreateNewRole([FromBody] CreateRoleRequest request)
+        {
+            if (!ModelState.IsValid)
+                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
+
+            await _authService.CreateRoleIfNotExists(request);
+
+
+
+            return Ok(ApiResponse<string>.Ok($"Role '{request.RoleName}' criado com sucesso!"));
         }
     }
 }

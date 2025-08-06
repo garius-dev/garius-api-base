@@ -15,5 +15,6 @@ namespace GariusWeb.Api.Application.Interfaces
         Task ConfirmEmailAsync(string userId, string token);
         Task ForgotPasswordAsync(ForgotPasswordRequest request);
         Task ResetPasswordAsync(ResetPasswordRequest request);
+        Task<bool> CreateRoleIfNotExists(CreateRoleRequest request);
     }
 }

@@ -3,6 +3,7 @@ using System;
 using GariusWeb.Api.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace GariusWeb.Api.Infrastructure.Data.Migrations
 {
     [DbContext(typeof(ApplicationDbContext))]
-    partial class ApplicationDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250805194006_RefeedNewDB")]
+    partial class RefeedNewDB
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -35,9 +38,6 @@ namespace GariusWeb.Api.Infrastructure.Data.Migrations
                     b.Property<string>("Description")
                         .HasMaxLength(250)
                         .HasColumnType("character varying(250)");
-
-                    b.Property<int>("Level")
-                        .HasColumnType("integer");
 
                     b.Property<string>("Name")
                         .HasMaxLength(256)

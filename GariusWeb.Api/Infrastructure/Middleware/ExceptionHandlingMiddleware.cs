@@ -29,7 +29,14 @@ namespace GariusWeb.Api.Infrastructure.Middleware
                 context.Response.StatusCode = (int)ex.StatusCode;
 
                 var response = ApiResponse<string>.Fail(ex.Message, context.Response.StatusCode);
-                var result = JsonSerializer.Serialize(response);
+
+                var options = new JsonSerializerOptions
+                {
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+                    DictionaryKeyPolicy = JsonNamingPolicy.CamelCase
+                };
+
+                var result = JsonSerializer.Serialize(response, options);
 
                 await context.Response.WriteAsync(result);
             }

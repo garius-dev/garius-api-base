@@ -18,11 +18,13 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
+using Newtonsoft.Json.Serialization;
 using Serilog;
 using Serilog.Events;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System;
 using System.Text;
+using System.Text.Json;
 using System.Threading.RateLimiting;
 using static GariusWeb.Api.Configuration.AppSecrets;
 
@@ -264,7 +266,17 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 });
 
 // --- Add services to the container ---
-builder.Services.AddControllers();
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
+    })
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+    });
+
 builder.Host.UseSerilog();
 
 var app = builder.Build();

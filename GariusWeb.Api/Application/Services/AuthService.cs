@@ -2,6 +2,7 @@
 using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Domain.Entities.Identity;
+using GariusWeb.Api.Extensions;
 using GariusWeb.Api.Helpers;
 using GariusWeb.Api.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
@@ -16,6 +17,7 @@ namespace GariusWeb.Api.Application.Services
 {
     public class AuthService : IAuthService
     {
+        private readonly RoleManager<ApplicationRole> _roleManager;
         private readonly UserManager<ApplicationUser> _userManager;
         private readonly SignInManager<ApplicationUser> _signInManager;
         private readonly IEmailSender _emailSender;
@@ -29,7 +31,8 @@ namespace GariusWeb.Api.Application.Services
                        IOptions<JwtSettings> jwtSettings,
                        IJwtTokenGenerator jwtTokenGenerator,
                        SignInManager<ApplicationUser> signInManager,
-                       IHttpContextAccessor httpContextAccessor)
+                       IHttpContextAccessor httpContextAccessor,
+                       RoleManager<ApplicationRole> roleManager)
         {
             _userManager = userManager;
             _emailSender = emailSender;
@@ -37,7 +40,30 @@ namespace GariusWeb.Api.Application.Services
             _jwtTokenGenerator = jwtTokenGenerator;
             _signInManager = signInManager;
             _httpContextAccessor = httpContextAccessor;
+            _roleManager = roleManager;
         }
+
+        public async Task<bool> CreateRoleIfNotExists(CreateRoleRequest request)
+        {
+            if (string.IsNullOrWhiteSpace(request.RoleName))
+                throw new BadRequestException("O nome da role não pode ser vazio.");
+
+            var roleExists = await _roleManager.RoleExistsAsync(request.RoleName);
+
+            if (!roleExists)
+            {
+                var result = await _roleManager.CreateAsync(new ApplicationRole(request.RoleName, null, request.RoleLevel));
+                
+
+                if (!result.Succeeded)
+                {
+                    throw new InternalServerErrorAppException("Erro ao criar role: " + string.Join(", ", result.Errors.Select(e => e.Description)));
+                }
+            }
+
+            return true;
+        }
+
 
         public async Task RegisterAsync(RegisterRequest request)
         {
@@ -45,12 +71,13 @@ namespace GariusWeb.Api.Application.Services
             if (existing != null)
                 throw new ConflictException("Email já está em uso.");
 
+
             var user = new ApplicationUser
             {
                 UserName = request.Email,
                 Email = request.Email,
-                FirstName = request.FirstName,
-                LastName = request.LastName,
+                FirstName = request.FirstName.SanitizeInput(),
+                LastName = request.LastName.SanitizeInput(),
                 IsExternalLogin = false,
                 IsActive = true
             };
@@ -77,13 +104,16 @@ namespace GariusWeb.Api.Application.Services
                 throw new ForbiddenAccessException("Usuário inativo.");
 
             if (!await _userManager.IsEmailConfirmedAsync(user))
-                throw new UnauthorizedAccessAppException("Email ainda não confirmado.");
+                throw new ForbiddenAccessException("Email ainda não confirmado.");
+
+            if(user.IsExternalLogin)
+                throw new ForbiddenAccessException($"Este e-mail está vinculado a um login externo.\r\n\r\nPara acessar sua conta, continue com o provedor utilizado no cadastro: {user.ExternalProvider}.");
 
             var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
 
             if (!result.Succeeded)
             {
-                throw new UnauthorizedAccessException("Credenciais inválidas.");
+                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
             }
 
             await _userManager.ResetAccessFailedCountAsync(user);

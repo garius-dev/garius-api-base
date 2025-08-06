@@ -30,7 +30,8 @@ namespace GariusWeb.Api.Infrastructure.Services
             };
 
             // Adiciona roles
-            claims.AddRange(roles.Select(role => new Claim(ClaimTypes.Role, role)));
+            var selectedRoles = roles.Select(role => new Claim(ClaimTypes.Role, role));
+            claims.AddRange(selectedRoles);
 
             // Adiciona claims personalizadas, se houver
             if (additionalClaims != null)
