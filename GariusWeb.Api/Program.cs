@@ -13,6 +13,7 @@ using Google;
 using Google.Api;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
@@ -254,7 +255,14 @@ builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 // --- CONFIGURAÇÃO DE SERVIÇOS DE AUTENTICAÇÃO ---
 builder.Services.AddScoped<IAuthService, AuthService>();
 
+// --- CONFIGURAÇÃO DE SERVIÇOS DE CUSTOMIZAÇÃO DO AUTHORIZE ---
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, CustomAuthorizationMiddleware>();
 
+// --- CONFIGURAÇÃO DE SERVIÇOS DE CUSTOMIZAÇÃO DAS POLICES ---
+builder.Services.AddAuthorization(options =>
+{
+    PoliciesExtensions.ConfigurePolicies(options);
+});
 
 // --- CONFIGURAÇÃO DO CORS ---
 builder.Services.AddCustomCors(builder.Environment);

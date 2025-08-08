@@ -8,6 +8,7 @@ using GariusWeb.Api.Infrastructure.Services;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Security.Claims;
 using System.Web;
@@ -53,7 +54,7 @@ namespace GariusWeb.Api.Application.Services
             if (!roleExists)
             {
                 var result = await _roleManager.CreateAsync(new ApplicationRole(request.RoleName, null, request.RoleLevel));
-                
+
 
                 if (!result.Succeeded)
                 {
@@ -64,6 +65,25 @@ namespace GariusWeb.Api.Application.Services
             return true;
         }
 
+        public async Task AddRoleToUser(string userEmail, string roleName)
+        {
+            var user = await _userManager.FindByEmailAsync(userEmail)
+                ?? throw new NotFoundException("Usuário não encontrado.");
+
+            var role = await _roleManager.Roles.Where(r => r.Name == roleName).FirstOrDefaultAsync();
+            if (role == null)
+                throw new NotFoundException($"Role '{roleName}' não existe.");
+
+            
+            var userRoles = await _userManager.GetRolesAsync(user);
+            if (userRoles.Contains(roleName))
+                throw new ConflictException("Usuário já possui esta role.");
+
+            var result = await _userManager.AddToRoleAsync(user, roleName);
+            if (!result.Succeeded)
+                throw new InternalServerErrorAppException("Erro ao adicionar Role: " +
+                    string.Join(", ", result.Errors.Select(e => e.Description)));
+        }
 
         public async Task RegisterAsync(RegisterRequest request)
         {
@@ -106,7 +126,7 @@ namespace GariusWeb.Api.Application.Services
             if (!await _userManager.IsEmailConfirmedAsync(user))
                 throw new ForbiddenAccessException("Email ainda não confirmado.");
 
-            if(user.IsExternalLogin)
+            if (user.IsExternalLogin)
                 throw new ForbiddenAccessException($"Este e-mail está vinculado a um login externo.\r\n\r\nPara acessar sua conta, continue com o provedor utilizado no cadastro: {user.ExternalProvider}.");
 
             var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
