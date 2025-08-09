@@ -93,7 +93,7 @@ namespace GariusWeb.Api.Application.Services
             {
                 var roles = await _userManager.GetRolesAsync(user);
                 string userName = user.FirstName + " " + user.LastName;
-                
+
                 userDtos.Add(new UserRoleResponse
                 {
                     Id = user.Id,
@@ -215,11 +215,11 @@ namespace GariusWeb.Api.Application.Services
                     "Você não tem permissão para remover roles deste usuário."
                 );
 
-            if(roleName == "all")
+            if (roleName == "all")
             {
                 if (userRoles == null || userRoles.Count == 0)
                     return true;
-                                
+
                 var resultAll = await _userManager.RemoveFromRolesAsync(user, userRoles);
                 if (!resultAll.Succeeded)
                     throw new InternalServerErrorAppException("Erro ao remover as Roles: " +
@@ -259,7 +259,7 @@ namespace GariusWeb.Api.Application.Services
             if (currentRoles.Count > 1)
                 throw new ConflictException("Usuário possui mais de uma role, o que não deveria acontecer.");
 
-            if(currentRoles.Count == 0)
+            if (currentRoles.Count == 0)
                 throw new OperationNotAllowedException("Usuário não possui nenhuma role vinculada.");
 
             var currentRoleName = currentRoles.FirstOrDefault();
@@ -339,32 +339,36 @@ namespace GariusWeb.Api.Application.Services
 
         public async Task<string> LoginAsync(LoginRequest request)
         {
-            var user = await _userManager.FindByEmailAsync(request.Email)
-                       ?? throw new NotFoundException("Usuário");
+            // Busca do usuário
+            var user = await _userManager.FindByEmailAsync(request.Email);
 
-            if (!user.IsActive)
-                throw new ForbiddenAccessException("Usuário inativo.");
-
-            if (!await _userManager.IsEmailConfirmedAsync(user))
-                throw new ForbiddenAccessException("Email ainda não confirmado.");
-
-            if (user.IsExternalLogin)
-                throw new ForbiddenAccessException($"Este e-mail está vinculado a um login externo.\r\n\r\nPara acessar sua conta, continue com o provedor utilizado no cadastro: {user.ExternalProvider}.");
-
-            var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
-
-            if (!result.Succeeded)
+            // Se usuário não existe, aplica atraso mínimo para mitigar timing e retorna erro genérico
+            if (user == null)
             {
+                await Task.Delay(TimeSpan.FromMilliseconds(200));
                 throw new UnauthorizedAccessAppException("Credenciais inválidas.");
             }
 
+            // Para qualquer condição que impeça login (inativo, e-mail não confirmado, login externo),
+            // ainda chamamos CheckPasswordSignInAsync para manter o timing e contagem de falhas/lockout consistentes,
+            // mas retornamos sempre resposta genérica ao cliente.
+            if (!user.IsActive || user.IsExternalLogin || !(await _userManager.IsEmailConfirmedAsync(user)))
+            {
+                await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
+                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
+            }
+
+            // Verificação de credenciais com lockout habilitado
+            var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
+            if (!result.Succeeded)
+                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
+
+            // Sucesso: zera o contador de falhas e gera o token
             await _userManager.ResetAccessFailedCountAsync(user);
 
-            // Obter as roles do usuário
             var roles = await _userManager.GetRolesAsync(user);
             var claims = await _userManager.GetClaimsAsync(user);
 
-            // Em breve: gerar JWT aqui
             return _jwtTokenGenerator.GenerateToken(user, roles, claims);
         }
 
@@ -430,40 +434,60 @@ namespace GariusWeb.Api.Application.Services
 
         public async Task ConfirmEmailAsync(string userId, string token)
         {
-            var user = await _userManager.FindByIdAsync(userId)
-                       ?? throw new NotFoundException("Usuário");
+            // Mensagem neutra: não diferenciar usuário inválido
+            var user = await _userManager.FindByIdAsync(userId);
+            if (user == null)
+                throw new BadRequestException("Link inválido ou expirado.");
 
+            //var decodedToken = token; // token já vem URL-safe no fluxo de geração
             var result = await _userManager.ConfirmEmailAsync(user, token);
 
             if (!result.Succeeded)
-                throw new ValidationException("Não foi possível confirmar o e-mail.");
+                throw new BadRequestException("Link inválido ou expirado.");
         }
 
         public async Task ForgotPasswordAsync(ForgotPasswordRequest request)
         {
+            // Se existir e estiver confirmado, envia o e-mail; caso contrário, responde normalmente (silencioso).
             var user = await _userManager.FindByEmailAsync(request.Email);
-            if (user == null || !(await _userManager.IsEmailConfirmedAsync(user)))
-                return; // Silencia para evitar enumeração de e-mails
 
-            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-            var encodedToken = HttpUtility.UrlEncode(token);
+            if (user != null && await _userManager.IsEmailConfirmedAsync(user))
+            {
+                var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+                var encodedToken = HttpUtility.UrlEncode(token);
 
-            var callbackUrl = $"{_jwtSettings.PasswordResetUrl}?email={HttpUtility.UrlEncode(request.Email)}&token={encodedToken}";
-            var body = $"<p>Para redefinir sua senha, <a href='{callbackUrl}'>clique aqui</a>.</p>";
+                var resetLink = $"{_jwtSettings.PasswordResetUrl}?email={HttpUtility.UrlEncode(user.Email)}&token={encodedToken}";
+                var body = $"<h3>Redefinir senha</h3><p><a href='{resetLink}'>Clique aqui para redefinir sua senha</a></p>";
 
-            await _emailSender.SendEmailAsync(request.Email, "Redefinir senha", body);
+                // Em caso de erro de envio, logar internamente via middleware/observabilidade
+                try
+                {
+                    await _emailSender.SendEmailAsync(user.Email!, "Redefinição de senha", body);
+                }
+                catch
+                {
+                    // logar internamente; não propagar erro
+                }
+            }
         }
 
         public async Task ResetPasswordAsync(ResetPasswordRequest request)
         {
-            var user = await _userManager.FindByEmailAsync(request.Email)
-                       ?? throw new NotFoundException("Usuário");
+            // Não revelar se o e-mail é válido; aplicar fluxo neutro
+            var user = await _userManager.FindByEmailAsync(request.Email);
+            if (user == null)
+            {
+                // Mitigar timing
+                await Task.Delay(TimeSpan.FromMilliseconds(100));
+                return;
+            }
 
             var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
 
+            // Para não vazar informações, não expor detalhes de falha de token/senha ao cliente final.
+            // Ainda assim, se quiser padronizar como 400, use BadRequestException com mensagem genérica.
             if (!result.Succeeded)
-                throw new ValidationException("Não foi possível redefinir a senha: " +
-                    string.Join("; ", result.Errors.Select(e => e.Description)));
+                throw new BadRequestException("Não foi possível redefinir a senha. Link inválido ou expirado.");
         }
 
         public string GetExternalLoginUrl(string provider, string redirectUrl)
