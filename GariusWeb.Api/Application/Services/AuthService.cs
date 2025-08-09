@@ -327,9 +327,10 @@ namespace GariusWeb.Api.Application.Services
             var result = await _userManager.CreateAsync(user, request.Password);
             if (!result.Succeeded)
                 throw new ValidationException(string.Join("; ", result.Errors.Select(e => e.Description)));
-
+            
+            // Token de confirmação de e-mail em Base64Url
             var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
-            var encodedToken = HttpUtility.UrlEncode(token);
+            var encodedToken = WebEncoders.Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(token));
 
             var confirmLink = $"{_jwtSettings.EmailConfirmationUrl}?userId={user.Id}&token={encodedToken}";
 
@@ -421,15 +422,12 @@ namespace GariusWeb.Api.Application.Services
 
             var token = _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
 
-            var query = new Dictionary<string, string?>
-            {
-                ["token"] = token
-            };
-
+            // Retornar o token no fragmento (#) para reduzir vazamento via logs/referrers.
+            var parts = new List<string> { $"token={Uri.EscapeDataString(token)}" };
             if (!string.IsNullOrWhiteSpace(returnUrl))
-                query["returnUrl"] = returnUrl;
+                parts.Add($"returnUrl={Uri.EscapeDataString(returnUrl)}");
 
-            return QueryHelpers.AddQueryString(transitionUrl, query);
+            return $"{transitionUrl}#{string.Join("&", parts)}";
         }
 
         public async Task ConfirmEmailAsync(string userId, string token)
@@ -439,8 +437,20 @@ namespace GariusWeb.Api.Application.Services
             if (user == null)
                 throw new BadRequestException("Link inválido ou expirado.");
 
-            //var decodedToken = token; // token já vem URL-safe no fluxo de geração
-            var result = await _userManager.ConfirmEmailAsync(user, token);
+
+            // Decodifica o token Base64Url gerado no envio do e-mail
+            string decodedToken;
+            try
+            {
+                var tokenBytes = WebEncoders.Base64UrlDecode(token);
+                decodedToken = System.Text.Encoding.UTF8.GetString(tokenBytes);
+            }
+            catch
+            {
+                throw new BadRequestException("Link inválido ou expirado.");
+            }
+
+            var result = await _userManager.ConfirmEmailAsync(user, decodedToken);
 
             if (!result.Succeeded)
                 throw new BadRequestException("Link inválido ou expirado.");
@@ -454,9 +464,12 @@ namespace GariusWeb.Api.Application.Services
             if (user != null && await _userManager.IsEmailConfirmedAsync(user))
             {
                 var token = await _userManager.GeneratePasswordResetTokenAsync(user);
-                var encodedToken = HttpUtility.UrlEncode(token);
+                //var encodedToken = HttpUtility.UrlEncode(token);
 
-                var resetLink = $"{_jwtSettings.PasswordResetUrl}?email={HttpUtility.UrlEncode(user.Email)}&token={encodedToken}";
+                // Token de reset em Base64Url
+                var encodedToken = WebEncoders.Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(token));
+
+                var resetLink = $"{_jwtSettings.PasswordResetUrl}?email={Uri.EscapeDataString(user.Email!)}&token={encodedToken}";
                 var body = $"<h3>Redefinir senha</h3><p><a href='{resetLink}'>Clique aqui para redefinir sua senha</a></p>";
 
                 // Em caso de erro de envio, logar internamente via middleware/observabilidade
@@ -482,7 +495,20 @@ namespace GariusWeb.Api.Application.Services
                 return;
             }
 
-            var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
+            // Decodifica o token Base64Url recebido
+            string decodedToken;
+            try
+            {
+                var tokenBytes = WebEncoders.Base64UrlDecode(request.Token);
+                decodedToken = System.Text.Encoding.UTF8.GetString(tokenBytes);
+            }
+            catch
+            {
+                throw new BadRequestException("Não foi possível redefinir a senha. Link inválido ou expirado.");
+            }
+
+            //var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
+            var result = await _userManager.ResetPasswordAsync(user, decodedToken, request.NewPassword);
 
             // Para não vazar informações, não expor detalhes de falha de token/senha ao cliente final.
             // Ainda assim, se quiser padronizar como 400, use BadRequestException com mensagem genérica.
