@@ -137,7 +137,7 @@ builder.Services.AddValidatedSettings<JwtSettings>(secretConfig, "JwtSettings");
 // --- CONFIGURAÇÃO DO REDIS ---
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = builder.Configuration["Redis:Configuration"]; // ex: "localhost:6379"
+    options.Configuration = builder.Configuration["Redis:Configuration"];
     options.InstanceName = "Garius:";
 });
 
@@ -377,10 +377,17 @@ app.MapGet("/cache-test", async (IDistributedCache cache) =>
     return Results.Ok(new { valor, deCache = false });
 });
 
-using (var scope = app.Services.CreateScope())
+
+if (args.Length == 1 && args[0] == "migrate")
 {
-    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-    db.Database.Migrate();
+    using (var scope = app.Services.CreateScope())
+    {
+        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+        db.Database.Migrate();
+        Console.WriteLine("Migrações aplicadas com sucesso.");
+    }
+    return;
 }
+
 
 app.Run();
