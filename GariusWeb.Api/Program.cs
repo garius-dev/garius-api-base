@@ -5,6 +5,7 @@ using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Application.Services;
 using GariusWeb.Api.Domain.Entities.Identity;
 using GariusWeb.Api.Extensions;
+using GariusWeb.Api.Helpers;
 using GariusWeb.Api.Infrastructure.Data;
 using GariusWeb.Api.Infrastructure.Middleware;
 using GariusWeb.Api.Infrastructure.Services;
@@ -257,6 +258,9 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 
 // --- CONFIGURAÇÃO DE SERVIÇOS DE CUSTOMIZAÇÃO DO AUTHORIZE ---
 builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, CustomAuthorizationMiddleware>();
+
+//-------------------------------------
+builder.Services.AddScoped<LoggedUserHelper>();
 
 // --- CONFIGURAÇÃO DE SERVIÇOS DE CUSTOMIZAÇÃO DAS POLICES ---
 builder.Services.AddAuthorization(options =>

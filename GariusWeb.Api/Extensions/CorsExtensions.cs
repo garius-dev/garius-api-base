@@ -17,7 +17,8 @@
                                 "https://preview--garius-flow-control.lovable.app",
                                 "https://lovable.dev/projects/13fb6a64-b608-471d-b202-735249a9d63d",
                                 "https://localhost:7223",
-                                "http://localhost:8080"
+                                "http://localhost:8080",
+                                "https://preview--user-finder-infinite.lovable.app"
                             )
                             .AllowAnyHeader()
                             .AllowAnyMethod()
