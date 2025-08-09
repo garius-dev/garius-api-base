@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Serialization;
@@ -131,6 +132,13 @@ builder.Services.AddValidatedSettings<CloudflareSettings>(secretConfig, "Cloudfl
 builder.Services.AddValidatedSettings<CloudinarySettings>(secretConfig, "CloudinarySettings");
 builder.Services.AddValidatedSettings<ResendSettings>(secretConfig, "ResendSettings");
 builder.Services.AddValidatedSettings<JwtSettings>(secretConfig, "JwtSettings");
+
+// --- CONFIGURAÇÃO DO REDIS ---
+builder.Services.AddStackExchangeRedisCache(options =>
+{
+    options.Configuration = builder.Configuration["Redis:Configuration"]; // ex: "localhost:6379"
+    options.InstanceName = "Garius:";
+});
 
 // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
 var connectionString = secretConfig.GetSection("ConnectionStringSettings:Default").Value;
@@ -347,5 +355,22 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+
+app.MapGet("/cache-test", async (IDistributedCache cache) =>
+{
+    const string key = "cache-teste";
+    var valor = await cache.GetStringAsync(key);
+
+    if (valor != null)
+        return Results.Ok(new { valor, deCache = true });
+
+    valor = $"Gerado em {DateTime.Now}";
+    await cache.SetStringAsync(key, valor, new DistributedCacheEntryOptions
+    {
+        AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30)
+    });
+
+    return Results.Ok(new { valor, deCache = false });
+});
 
 app.Run();
