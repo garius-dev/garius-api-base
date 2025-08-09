@@ -46,7 +46,6 @@
 
   <ItemGroup>
     <Folder Include="Application\Mappers\" />
-    <Folder Include="Domain\Interfaces\" />
     <Folder Include="Infrastructure\Data\Migrations\" />
     <Folder Include="Infrastructure\Data\Repositories\" />
   </ItemGroup>
