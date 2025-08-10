@@ -6,8 +6,13 @@ namespace GariusWeb.Api.Configuration
     {
         public class ConnectionStringSettings
         {
-            [Required(ErrorMessage = "A connection string padrão ('Default') é obrigatória.")]
-            public string Default { get; set; } = string.Empty;
+            [Required(ErrorMessage = "A connection string padrão ('Development') é obrigatória.")]
+            public string Development { get; set; } = string.Empty;
+
+            [Required(ErrorMessage = "A connection string padrão ('Production') é obrigatória.")]
+            public string Production { get; set; } = string.Empty;
+
+            public string Build { get; set; } = string.Empty;
         }
 
         public class GoogleExternalAuthSettings

@@ -20,6 +20,11 @@ COPY . .
 WORKDIR "/src"
 RUN dotnet build "./GariusWeb.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
 
+# Migration stage
+FROM build AS migration
+RUN dotnet tool install --global dotnet-ef
+ENV PATH="$PATH:/root/.dotnet/tools"
+
 # Publish stage
 FROM build AS publish
 ARG BUILD_CONFIGURATION=Release

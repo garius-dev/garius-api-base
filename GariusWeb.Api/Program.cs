@@ -124,7 +124,7 @@ builder.Services.AddApiVersioning(options =>
 });
 
 // --- Configuração do Google Secrets ---
-var secretConfig = builder.AddGoogleSecrets("GariusTech");
+var secretConfig = builder.AddGoogleSecrets("GariusTechAppSecrets");
 
 builder.Services.AddValidatedSettings<ConnectionStringSettings>(secretConfig, "ConnectionStringSettings");
 builder.Services.AddValidatedSettings<GoogleExternalAuthSettings>(secretConfig, "GoogleExternalAuthSettings");
@@ -142,7 +142,8 @@ builder.Services.AddStackExchangeRedisCache(options =>
 });
 
 // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
-var connectionString = secretConfig.GetSection("ConnectionStringSettings:Default").Value;
+var connectionString = secretConfig.GetSection("ConnectionStringSettings:" + builder.Environment.EnvironmentName).Value;
+Log.Information("ConnectionStringSettings:" + builder.Environment.EnvironmentName);
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString, npgsqlOptionsAction: sqlOptions =>
@@ -314,21 +315,34 @@ app.UseSerilogRequestLogging();
 
 // --- Configure the HTTP request pipeline ---
 var provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI(options =>
-    {
-        foreach (var description in provider.ApiVersionDescriptions)
-        {
-            options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
-                $"GariusWeb.Api {description.GroupName.ToUpper()}");
-        }
+//if (app.Environment.IsDevelopment())
+//{
+//    app.UseSwagger();
+//    app.UseSwaggerUI(options =>
+//    {
+//        foreach (var description in provider.ApiVersionDescriptions)
+//        {
+//            options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
+//                $"GariusWeb.Api {description.GroupName.ToUpper()}");
+//        }
 
-        options.RoutePrefix = "swagger";
-        options.DefaultModelExpandDepth(-1);
-    });
-}
+//        options.RoutePrefix = "swagger";
+//        options.DefaultModelExpandDepth(-1);
+//    });
+//}
+
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    foreach (var description in provider.ApiVersionDescriptions)
+    {
+        options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
+            $"GariusWeb.Api {description.GroupName.ToUpper()}");
+    }
+
+    options.RoutePrefix = "swagger";
+    options.DefaultModelExpandDepth(-1);
+});
 
 app.UseRouting();
 
@@ -378,16 +392,16 @@ app.MapGet("/cache-test", async (IDistributedCache cache) =>
 });
 
 
-if (args.Length == 1 && args[0] == "migrate")
-{
-    using (var scope = app.Services.CreateScope())
-    {
-        var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-        db.Database.Migrate();
-        Console.WriteLine("Migrações aplicadas com sucesso.");
-    }
-    return;
-}
+//if (args.Length == 1 && args[0] == "migrate")
+//{
+//using (var scope = app.Services.CreateScope())
+//{
+//    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+//    db.Database.Migrate();
+//    Console.WriteLine("Migrações aplicadas com sucesso.");
+//}
+//    return;
+//}
 
 
 app.Run();

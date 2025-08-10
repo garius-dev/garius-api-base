@@ -5,11 +5,11 @@ namespace GariusWeb.Api.Extensions
 {
     public static class GoogleSecretsExtensions
     {
-        public static IConfiguration AddGoogleSecrets(this WebApplicationBuilder builder, string appName)
+        public static IConfiguration AddGoogleSecrets(this WebApplicationBuilder builder, string secretName)
         {
             var projectId = builder.Configuration["GoogleSecretManager:ProjectId"] ?? throw new Exception("GoogleSecretManager:ProjectId is missing.");
-            var env = builder.Environment.EnvironmentName;
-            var secretName = $"{appName}_{env}_AppSecrets";
+            //var env = builder.Environment.EnvironmentName;
+            //var secretName = $"{appName}_{env}_AppSecrets";
 
             var client = SecretManagerServiceClient.Create();
             var secretVersion = new SecretVersionName(projectId, secretName, "latest");

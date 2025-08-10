@@ -10,7 +10,7 @@ namespace GariusWeb.Api.Infrastructure.Data.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-
+            
         }
 
         /// <inheritdoc />
