@@ -364,3 +364,4 @@ FodyWeavers.xsd
 
 # Docker Compose
 docker-compose*.yml
+/GariusWeb.Api/init-users.sql
