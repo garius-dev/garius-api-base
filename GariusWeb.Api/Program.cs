@@ -16,19 +16,23 @@ using Google.Api;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json.Serialization;
 using Serilog;
 using Serilog.Events;
+using StackExchange.Redis;
 using Swashbuckle.AspNetCore.SwaggerGen;
 using System;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading.RateLimiting;
 using static GariusWeb.Api.Configuration.AppSecrets;
 
@@ -42,6 +46,12 @@ Log.Logger = new LoggerConfiguration()
     .CreateLogger();
 
 var builder = WebApplication.CreateBuilder(args);
+
+var enableHttpsRedirect =
+    builder.Configuration.GetValue<bool?>("Security:EnableHttpsRedirection") ?? true;
+
+var enableSwaggerUI =
+    builder.Configuration.GetValue<bool?>("Swagger:EnableUI") ?? false;
 
 builder.Host.UseSerilog();
 
@@ -133,17 +143,31 @@ builder.Services.AddValidatedSettings<CloudflareSettings>(secretConfig, "Cloudfl
 builder.Services.AddValidatedSettings<CloudinarySettings>(secretConfig, "CloudinarySettings");
 builder.Services.AddValidatedSettings<ResendSettings>(secretConfig, "ResendSettings");
 builder.Services.AddValidatedSettings<JwtSettings>(secretConfig, "JwtSettings");
+builder.Services.AddValidatedSettings<RedisSettings>(secretConfig, "RedisSettings");
 
 // --- CONFIGURAÇÃO DO REDIS ---
+var redisConfig = secretConfig.GetSection($"RedisSettings:{builder.Environment.EnvironmentName}:Configuration").Value;
+if (string.IsNullOrWhiteSpace(redisConfig))
+{
+    Log.Fatal("Redis: load config failed");
+    Environment.Exit(1);
+}
+
 builder.Services.AddStackExchangeRedisCache(options =>
 {
-    options.Configuration = builder.Configuration["Redis:Configuration"];
+    options.Configuration = redisConfig;
     options.InstanceName = "Garius:";
 });
+Log.Information($"Configuring Redis with: {redisConfig}");
+
 
 // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
 var connectionString = secretConfig.GetSection("ConnectionStringSettings:" + builder.Environment.EnvironmentName).Value;
-Log.Information("ConnectionStringSettings:" + builder.Environment.EnvironmentName);
+if(string.IsNullOrWhiteSpace(connectionString))
+{
+    Log.Fatal("DB: load config failed");
+    Environment.Exit(1);
+}
 
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString, npgsqlOptionsAction: sqlOptions =>
@@ -272,7 +296,7 @@ builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, CustomAutho
 // --- CONFIGURAÇÃO DE SERVIÇOS DO REDIS ---
 builder.Services.AddSingleton<ICacheService, RedisCacheService>();
 
-//-------------------------------------
+// --- CONFIGURAÇÃO DO HELPER PARA COLETAR DADOS DE USUÁRIO LOGADO ---
 builder.Services.AddScoped<LoggedUserHelper>();
 
 // --- CONFIGURAÇÃO DE SERVIÇOS DE CUSTOMIZAÇÃO DAS POLICES ---
@@ -284,10 +308,16 @@ builder.Services.AddAuthorization(options =>
 // --- CONFIGURAÇÃO DO CORS ---
 builder.Services.AddCustomCors(builder.Environment);
 
+// --- CONFIGURAÇÃO DO HealthChecks ---
+builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy());
+
 
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
 });
 
 // --- Add services to the container ---
@@ -302,9 +332,41 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
     });
 
+
+var mux = ConnectionMultiplexer.Connect(redisConfig);
+builder.Services
+    .AddDataProtection()
+    .SetApplicationName("Garius.Api")                 // isola entre apps
+    .SetDefaultKeyLifetime(TimeSpan.FromDays(90))     // rotação automática
+    .PersistKeysToStackExchangeRedis(mux, "DataProtection-Keys"); // key prefix no Redis
+Log.Information("Data Protection keys are being stored in Redis...");
+
 builder.Host.UseSerilog();
 
 var app = builder.Build();
+
+// --- CONFIGURAÇÃO DA BUILD DE MIGRATION ---
+if (args.Contains("--migrate-only"))
+{
+    using (var scope = app.Services.CreateScope())
+    {
+        var context = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+
+        try
+        {
+            Console.WriteLine("Running migrations...");
+            await context.Database.MigrateAsync();
+            Console.WriteLine("Migrations completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Migration failed: {ex.Message}");
+            Environment.Exit(1);
+        }
+    }
+
+    Environment.Exit(0);
+}
 
 app.UseForwardedHeaders();
 
@@ -315,41 +377,37 @@ app.UseSerilogRequestLogging();
 
 // --- Configure the HTTP request pipeline ---
 var provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
-//if (app.Environment.IsDevelopment())
-//{
-//    app.UseSwagger();
-//    app.UseSwaggerUI(options =>
-//    {
-//        foreach (var description in provider.ApiVersionDescriptions)
-//        {
-//            options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
-//                $"GariusWeb.Api {description.GroupName.ToUpper()}");
-//        }
-
-//        options.RoutePrefix = "swagger";
-//        options.DefaultModelExpandDepth(-1);
-//    });
-//}
-
-app.UseSwagger();
-app.UseSwaggerUI(options =>
+if (app.Environment.IsDevelopment() || enableSwaggerUI)
 {
-    foreach (var description in provider.ApiVersionDescriptions)
+    app.UseSwagger();
+    app.UseSwaggerUI(options =>
     {
-        options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
-            $"GariusWeb.Api {description.GroupName.ToUpper()}");
-    }
+        foreach (var description in provider.ApiVersionDescriptions)
+        {
+            options.SwaggerEndpoint($"/swagger/{description.GroupName}/swagger.json",
+                $"GariusWeb.Api {description.GroupName.ToUpper()}");
+        }
 
-    options.RoutePrefix = "swagger";
-    options.DefaultModelExpandDepth(-1);
-});
+        options.RoutePrefix = "swagger";
+        options.DefaultModelExpandDepth(-1);
+    });
+}
 
 app.UseRouting();
 
 app.UseCustomCors();
 app.UseRateLimiter();
 
-app.UseHttpsRedirection();
+if (enableHttpsRedirect)
+{
+    app.UseHttpsRedirection();
+    Log.Information("HTTPS Redirection: Enabled");
+
+}
+else
+{
+    Log.Information("HTTPS Redirection: Disabled");
+}
 
 var policy = new HeaderPolicyCollection()
     .AddDefaultSecurityHeaders()
@@ -374,7 +432,8 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-app.MapGet("/cache-test", async (IDistributedCache cache) =>
+// --- CRIAÇÃO DO ENDPOINT DE TESTE DE PING DO REDIS ---
+app.MapGet("/redis-ping", async (IDistributedCache cache) =>
 {
     const string key = "cache-teste";
     var valor = await cache.GetStringAsync(key);
@@ -391,17 +450,29 @@ app.MapGet("/cache-test", async (IDistributedCache cache) =>
     return Results.Ok(new { valor, deCache = false });
 });
 
+// --- CRIAÇÃO DO ENDPOINT DE HEALTH CHECK ---
+app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+{
+    ResponseWriter = async (context, report) =>
+    {
+        context.Response.ContentType = "application/json";
+        var response = new
+        {
+            status = report.Status.ToString(),
+            environment = builder.Environment.EnvironmentName,
+            redisConfig = redisConfig,
+            checks = report.Entries.Select(x => new
+            {
+                name = x.Key,
+                status = x.Value.Status.ToString(),
+                exception = x.Value.Exception?.Message,
+                duration = x.Value.Duration.ToString()
+            }),
+            duration = report.TotalDuration.ToString()
+        };
 
-//if (args.Length == 1 && args[0] == "migrate")
-//{
-//using (var scope = app.Services.CreateScope())
-//{
-//    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
-//    db.Database.Migrate();
-//    Console.WriteLine("Migrações aplicadas com sucesso.");
-//}
-//    return;
-//}
-
+        await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));
+    }
+});
 
 app.Run();

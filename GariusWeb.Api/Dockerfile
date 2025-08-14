@@ -1,37 +1,39 @@
-# Base image para runtime
+# Use the official ASP.NET Core runtime as base image
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS base
-USER $APP_UID
 WORKDIR /app
 EXPOSE 8080
-EXPOSE 8081
 
-# Build stage
+# Use the SDK image to build the application
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
-ARG BUILD_CONFIGURATION=Release
 WORKDIR /src
 
-# Copia só o csproj para aproveitar cache
-COPY ["GariusWeb.Api.csproj", "./"]
-RUN dotnet restore "./GariusWeb.Api.csproj"
+# Copy csproj and restore dependencies
+COPY ["GariusWeb.Api.csproj", "."]
+RUN dotnet restore "GariusWeb.Api.csproj"
 
-# Copia o restante dos arquivos
+# Copy everything else and build
 COPY . .
+RUN dotnet build "GariusWeb.Api.csproj" -c Release -o /app/build
 
-WORKDIR "/src"
-RUN dotnet build "./GariusWeb.Api.csproj" -c $BUILD_CONFIGURATION -o /app/build
-
-# Migration stage
-FROM build AS migration
-RUN dotnet tool install --global dotnet-ef
-ENV PATH="$PATH:/root/.dotnet/tools"
-
-# Publish stage
+# Publish the application
 FROM build AS publish
-ARG BUILD_CONFIGURATION=Release
-RUN dotnet publish "./GariusWeb.Api.csproj" -c $BUILD_CONFIGURATION -o /app/publish /p:UseAppHost=false
+RUN dotnet publish "GariusWeb.Api.csproj" -c Release -o /app/publish /p:UseAppHost=false
 
-# Final stage - runtime
+# Final stage/image
 FROM base AS final
 WORKDIR /app
+
+# Install curl for health checks
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Copy published application
 COPY --from=publish /app/publish .
+
+# Create directory for secrets
+RUN mkdir -p /app/secrets
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
 ENTRYPOINT ["dotnet", "GariusWeb.Api.dll"]

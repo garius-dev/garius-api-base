@@ -4,6 +4,7 @@ using GariusWeb.Api.Application.Dtos.Auth;
 using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Domain.Entities.Identity;
+using GariusWeb.Api.Domain.Interfaces;
 using GariusWeb.Api.Extensions;
 using GariusWeb.Api.Helpers;
 using GariusWeb.Api.Infrastructure.Services;
@@ -29,6 +30,7 @@ namespace GariusWeb.Api.Application.Services
         private readonly JwtSettings _jwtSettings;
         private readonly IJwtTokenGenerator _jwtTokenGenerator;
         private readonly LoggedUserHelper _loggedUserHelper;
+        private readonly ICacheService _cacheService;
 
         private readonly IHttpContextAccessor _httpContextAccessor;
 
@@ -39,7 +41,8 @@ namespace GariusWeb.Api.Application.Services
                        SignInManager<ApplicationUser> signInManager,
                        IHttpContextAccessor httpContextAccessor,
                        RoleManager<ApplicationRole> roleManager,
-                       LoggedUserHelper loggedUserHelper)
+                       LoggedUserHelper loggedUserHelper,
+                       ICacheService cacheService)
         {
             _userManager = userManager;
             _emailSender = emailSender;
@@ -49,6 +52,19 @@ namespace GariusWeb.Api.Application.Services
             _httpContextAccessor = httpContextAccessor;
             _roleManager = roleManager;
             _loggedUserHelper = loggedUserHelper;
+            _cacheService = cacheService;
+        }
+
+        private string GetApiBaseUrl(string segment)
+        {
+            var ctx = _httpContextAccessor.HttpContext
+                      ?? throw new InvalidOperationException("HttpContext Error: Chamada Inválida");
+
+            var baseUrl = $"{ctx.Request.Scheme}://{ctx.Request.Host}";
+            var version = ctx.GetRequestedApiVersion()?.MajorVersion
+                          ?? throw new InvalidOperationException("HttpContext Error: Versão Inválida");
+
+            return $"{baseUrl}/api/v{version}/{segment}";
         }
 
         public async Task<List<string>> GetRolesAsync()
@@ -309,6 +325,7 @@ namespace GariusWeb.Api.Application.Services
 
         public async Task RegisterAsync(RegisterRequest request)
         {
+
             var existing = await _userManager.FindByEmailAsync(request.Email);
             if (existing != null)
                 throw new ConflictException("Email já está em uso.");
@@ -327,12 +344,14 @@ namespace GariusWeb.Api.Application.Services
             var result = await _userManager.CreateAsync(user, request.Password);
             if (!result.Succeeded)
                 throw new ValidationException(string.Join("; ", result.Errors.Select(e => e.Description)));
-            
+
             // Token de confirmação de e-mail em Base64Url
             var token = await _userManager.GenerateEmailConfirmationTokenAsync(user);
             var encodedToken = WebEncoders.Base64UrlEncode(System.Text.Encoding.UTF8.GetBytes(token));
 
-            var confirmLink = $"{_jwtSettings.EmailConfirmationUrl}?userId={user.Id}&token={encodedToken}";
+            ///api/v1/auth/confirm-email
+            var confirmEmailEndpoint = GetApiBaseUrl(_jwtSettings.EmailConfirmationUrl);
+            var confirmLink = $"{confirmEmailEndpoint}?userId={user.Id}&token={encodedToken}";
 
             var body = $"<h3>Confirme seu e-mail</h3><p><a href='{confirmLink}'>Clique aqui para confirmar</a></p>";
             await _emailSender.SendEmailAsync(user.Email!, "Confirmação de e-mail", body);
@@ -421,9 +440,10 @@ namespace GariusWeb.Api.Application.Services
             var claims = await _userManager.GetClaimsAsync(user);
 
             var token = _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
+            await _cacheService.SetAsync<string>("code", token, TimeSpan.FromMinutes(1));
 
             // Retornar o token no fragmento (#) para reduzir vazamento via logs/referrers.
-            var parts = new List<string> { $"token={Uri.EscapeDataString(token)}" };
+            var parts = new List<string> { $"code={Uri.EscapeDataString(token)}" };
             if (!string.IsNullOrWhiteSpace(returnUrl))
                 parts.Add($"returnUrl={Uri.EscapeDataString(returnUrl)}");
 

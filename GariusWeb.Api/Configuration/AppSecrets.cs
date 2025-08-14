@@ -12,7 +12,7 @@ namespace GariusWeb.Api.Configuration
             [Required(ErrorMessage = "A connection string padrão ('Production') é obrigatória.")]
             public string Production { get; set; } = string.Empty;
 
-            public string Build { get; set; } = string.Empty;
+            public string Staging { get; set; } = string.Empty;
         }
 
         public class GoogleExternalAuthSettings
@@ -83,6 +83,28 @@ namespace GariusWeb.Api.Configuration
 
             public string EmailConfirmationUrl { get; set; } = default!;
             public string PasswordResetUrl { get; set; } = default!;
+        }
+
+        public class RedisStaging
+        {
+            public string Configuration { get; set; } = string.Empty;
+        }
+
+        public class RedisDevelopment
+        {
+            public string Configuration { get; set; } = string.Empty;
+        }
+
+        public class RedisProduction
+        {
+            public string Configuration { get; set; } = string.Empty;
+        }
+
+        public class RedisSettings
+        {
+            public RedisDevelopment Development { get; set; } = new();
+            public RedisProduction Production { get; set; } = new();
+            public RedisStaging Staging { get; set; } = new();
         }
     }
 }
