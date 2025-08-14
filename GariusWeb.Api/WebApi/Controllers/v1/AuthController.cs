@@ -97,6 +97,16 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
             return Redirect(redirectUrl);
         }
 
+        [HttpPost("exchange")]
+        public async Task<IActionResult> ExchangeCode([FromBody] CodeExchangeRequest request)
+        {
+            if (!ModelState.IsValid)
+                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
+
+            var token = await _authService.ExchangeCode(request.Code);
+            return Ok(ApiResponse<string>.Ok(token, "Sucesso!"));
+        }
+
         [HttpGet("confirm-email")]
         public async Task<IActionResult> ConfirmEmail([FromQuery] string userId, [FromQuery] string token)
         {
