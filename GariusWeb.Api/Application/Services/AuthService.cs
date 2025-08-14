@@ -1,5 +1,4 @@
-﻿using AngleSharp.Css;
-using GariusWeb.Api.Application.Dtos;
+﻿using GariusWeb.Api.Application.Dtos;
 using GariusWeb.Api.Application.Dtos.Auth;
 using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
@@ -7,8 +6,6 @@ using GariusWeb.Api.Domain.Entities.Identity;
 using GariusWeb.Api.Domain.Interfaces;
 using GariusWeb.Api.Extensions;
 using GariusWeb.Api.Helpers;
-using GariusWeb.Api.Infrastructure.Services;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.WebUtilities;
@@ -17,7 +14,6 @@ using Microsoft.Extensions.Options;
 using System.Data;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Web;
 using static GariusWeb.Api.Configuration.AppSecrets;
 
 namespace GariusWeb.Api.Application.Services
@@ -56,6 +52,13 @@ namespace GariusWeb.Api.Application.Services
             _cacheService = cacheService;
         }
 
+        private class LoginPayload
+        {
+            public Guid UserId { get; set; }
+            public IList<string> Roles { get; set; } = new List<string>();
+            public IList<Claim> Claims { get; set; } = new List<Claim>();
+        }
+
         private string GetApiBaseUrl(string segment)
         {
             var ctx = _httpContextAccessor.HttpContext
@@ -68,35 +71,28 @@ namespace GariusWeb.Api.Application.Services
             return $"{baseUrl}/api/v{version}/{segment}";
         }
 
-        public static string CreateOneTimeCode(int byteLen = 32)
+        private async Task EnsureUserCanLoginAsync(ApplicationUser? user, bool isExternalLogin = false)
         {
-            if (byteLen < 32) throw new ArgumentOutOfRangeException(nameof(byteLen), "Use >= 32 bytes.");
-            Span<byte> bytes = stackalloc byte[byteLen];
-            RandomNumberGenerator.Fill(bytes);
-            return WebEncoders.Base64UrlEncode(bytes);
-        }
-
-        public static bool TryGetCodeHash(string? code, out string hexHash)
-        {
-            hexHash = string.Empty;
-            if (string.IsNullOrWhiteSpace(code)) return false;
-
-            if (code.Length > 512) return false;
-
-            try
+            if (user == null)
             {
-                byte[] codeBytes = WebEncoders.Base64UrlDecode(code);
-                byte[] hash = SHA256.HashData(codeBytes);
-                hexHash = Convert.ToHexString(hash);
-                return true;
+                await Task.Delay(TimeSpan.FromMilliseconds(200));
+                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
             }
-            catch
+
+            bool isEmailConfirmed = await _userManager.IsEmailConfirmedAsync(user);
+
+            if (!user.IsActive || !isEmailConfirmed)
             {
-                return false;
+                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
+            }
+
+            // Para login interno, o usuário não pode ser um usuário de login externo.
+            // Para login externo, o usuário DEVE ser um usuário de login externo.
+            if (isExternalLogin != user.IsExternalLogin)
+            {
+                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
             }
         }
-
-        
 
         public async Task<List<string>> GetRolesAsync()
         {
@@ -157,7 +153,6 @@ namespace GariusWeb.Api.Application.Services
             };
         }
 
-
         public async Task<bool> CreateRoleIfNotExistsAsync(CreateRoleRequest request)
         {
             var loggedUserInfo = await _loggedUserHelper.GetLoggedUserInfoAsync();
@@ -173,7 +168,6 @@ namespace GariusWeb.Api.Application.Services
             if (!roleExists)
             {
                 var result = await _roleManager.CreateAsync(new ApplicationRole(request.RoleName, null, request.RoleLevel));
-
 
                 if (!result.Succeeded)
                 {
@@ -243,7 +237,6 @@ namespace GariusWeb.Api.Application.Services
             var user = await _userManager.FindByEmailAsync(userEmail)
                 ?? throw new NotFoundException("Usuário não encontrado.");
 
-
             // Pega o top role level do usuário alvo
             var userRoles = await _userManager.GetRolesAsync(user);
 
@@ -284,7 +277,6 @@ namespace GariusWeb.Api.Application.Services
 
             if (!userRoles.Contains(roleName))
                 throw new ConflictException("Usuário não possui esta role.");
-
 
             var result = await _userManager.RemoveFromRoleAsync(user, roleName);
             if (!result.Succeeded)
@@ -356,11 +348,9 @@ namespace GariusWeb.Api.Application.Services
 
         public async Task RegisterAsync(RegisterRequest request)
         {
-
             var existing = await _userManager.FindByEmailAsync(request.Email);
             if (existing != null)
                 throw new ConflictException("Email já está em uso.");
-
 
             var user = new ApplicationUser
             {
@@ -393,34 +383,21 @@ namespace GariusWeb.Api.Application.Services
             // Busca do usuário
             var user = await _userManager.FindByEmailAsync(request.Email);
 
-            // Se usuário não existe, aplica atraso mínimo para mitigar timing e retorna erro genérico
-            if (user == null)
-            {
-                await Task.Delay(TimeSpan.FromMilliseconds(200));
-                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
-            }
-
-            // Para qualquer condição que impeça login (inativo, e-mail não confirmado, login externo),
-            // ainda chamamos CheckPasswordSignInAsync para manter o timing e contagem de falhas/lockout consistentes,
-            // mas retornamos sempre resposta genérica ao cliente.
-            if (!user.IsActive || user.IsExternalLogin || !(await _userManager.IsEmailConfirmedAsync(user)))
-            {
-                await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
-                throw new UnauthorizedAccessAppException("Credenciais inválidas.");
-            }
+            await EnsureUserCanLoginAsync(user, isExternalLogin: false);
 
             // Verificação de credenciais com lockout habilitado
-            var result = await _signInManager.CheckPasswordSignInAsync(user, request.Password, lockoutOnFailure: true);
+            var result = await _signInManager.CheckPasswordSignInAsync(user!, request.Password, lockoutOnFailure: true);
+
             if (!result.Succeeded)
                 throw new UnauthorizedAccessAppException("Credenciais inválidas.");
 
             // Sucesso: zera o contador de falhas e gera o token
-            await _userManager.ResetAccessFailedCountAsync(user);
+            await _userManager.ResetAccessFailedCountAsync(user!);
 
-            var roles = await _userManager.GetRolesAsync(user);
-            var claims = await _userManager.GetClaimsAsync(user);
+            var roles = await _userManager.GetRolesAsync(user!);
+            var claims = await _userManager.GetClaimsAsync(user!);
 
-            return _jwtTokenGenerator.GenerateToken(user, roles, claims);
+            return _jwtTokenGenerator.GenerateToken(user!, roles, claims);
         }
 
         public ChallengeResult GetExternalLoginChallangeAsync(string provider, string redirectUrl)
@@ -467,13 +444,13 @@ namespace GariusWeb.Api.Application.Services
             var roles = await _userManager.GetRolesAsync(user);
             var claims = await _userManager.GetClaimsAsync(user);
 
-            var code = CreateOneTimeCode();
+            var code = TextExtensions.CreateOneTimeCode();
             var codeBytes = WebEncoders.Base64UrlDecode(code);
             var codeHash = Convert.ToHexString(SHA256.HashData(codeBytes));
 
             await _cacheService.SetAsync(
                 $"ext_code:{codeHash}",
-                new LoginPayload { User = user, Roles = roles, Claims = claims },
+                new LoginPayload { UserId = user.Id, Roles = roles, Claims = claims },
                 TimeSpan.FromMinutes(1));
 
             var parts = new List<string> { $"code={Uri.EscapeDataString(code)}" };
@@ -485,7 +462,7 @@ namespace GariusWeb.Api.Application.Services
 
         public async Task<string> ExchangeCode(string code)
         {
-            if (!TryGetCodeHash(code, out var codeHash))
+            if (!TextExtensions.TryGetCodeHash(code, out var codeHash))
                 throw new BadRequestException("Código inválido ou expirado.");
 
             string cacheKey = $"ext_code:{codeHash}";
@@ -497,7 +474,11 @@ namespace GariusWeb.Api.Application.Services
 
             await _cacheService.RemoveAsync(cacheKey);
 
-            var token = _jwtTokenGenerator.GenerateToken(payload.User, payload.Roles, payload.Claims);
+            var user = await _userManager.FindByIdAsync(payload.UserId.ToString());
+
+            await EnsureUserCanLoginAsync(user, isExternalLogin: true);
+
+            var token = _jwtTokenGenerator.GenerateToken(user!, payload.Roles, payload.Claims);
             return token;
         }
 
@@ -507,7 +488,6 @@ namespace GariusWeb.Api.Application.Services
             var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
                 throw new BadRequestException("Link inválido ou expirado.");
-
 
             // Decodifica o token Base64Url gerado no envio do e-mail
             string decodedToken;

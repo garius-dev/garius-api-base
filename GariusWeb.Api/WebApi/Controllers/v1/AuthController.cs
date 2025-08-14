@@ -31,7 +31,7 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         }
 
         [HttpPost("register")]
-        [EnableRateLimiting("RegisterPolicy")]
+        [EnableRateLimiting(RateLimiterExtensions.RegisterPolicy)]
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
             if (!ModelState.IsValid)
@@ -42,7 +42,7 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         }
 
         [HttpPost("login")]
-        [EnableRateLimiting("LoginPolicy")]
+        [EnableRateLimiting(RateLimiterExtensions.LoginPolicy)]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
             if (!ModelState.IsValid)
