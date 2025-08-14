@@ -16,6 +16,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using System.Data;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.Web;
 using static GariusWeb.Api.Configuration.AppSecrets;
 
@@ -65,6 +66,55 @@ namespace GariusWeb.Api.Application.Services
                           ?? throw new InvalidOperationException("HttpContext Error: Versão Inválida");
 
             return $"{baseUrl}/api/v{version}/{segment}";
+        }
+
+        public static string CreateOneTimeCode(int byteLen = 32)
+        {
+            if (byteLen < 32) throw new ArgumentOutOfRangeException(nameof(byteLen), "Use >= 32 bytes.");
+            Span<byte> bytes = stackalloc byte[byteLen];
+            RandomNumberGenerator.Fill(bytes);
+            return WebEncoders.Base64UrlEncode(bytes);
+        }
+
+        public static bool TryGetCodeHash(string? code, out string hexHash)
+        {
+            hexHash = string.Empty;
+            if (string.IsNullOrWhiteSpace(code)) return false;
+
+            // Opcional: limite básico de tamanho (Base64URL de 32B ≈ 43 chars)
+            if (code.Length > 512) return false;
+
+            try
+            {
+                byte[] codeBytes = WebEncoders.Base64UrlDecode(code);
+                byte[] hash = SHA256.HashData(codeBytes);
+                hexHash = Convert.ToHexString(hash); // UPPERCASE
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+
+            //if (!CodeUtils.TryGetCodeHash(request.Code, out var codeHash))
+            //    return BadRequest(ApiResponse<string>.Fail("Código inválido", 400));
+        }
+
+        public async Task ExchangeCode(string code)
+        {
+            if (!TryGetCodeHash(code, out var codeHash))
+                throw new BadRequestException("Código inválido ou expirado.");
+
+            string cacheKey = $"ext_code:{codeHash}";
+
+            var payload = await _cacheService.GetAsync<LoginPayload>(cacheKey);
+
+            if (payload == null)
+                throw new BadRequestException("Código inválido ou expirado.");
+
+            await _cacheService.RemoveAsync(cacheKey);
+
+            var token = _jwtTokenGenerator.GenerateToken(payload.User, payload.Roles, payload.Claims);
         }
 
         public async Task<List<string>> GetRolesAsync()
@@ -439,11 +489,26 @@ namespace GariusWeb.Api.Application.Services
             var roles = await _userManager.GetRolesAsync(user);
             var claims = await _userManager.GetClaimsAsync(user);
 
-            var token = _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
-            await _cacheService.SetAsync<string>("code", token, TimeSpan.FromMinutes(1));
+            //var token = _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
+            var code = CreateOneTimeCode();
+            var codeBytes = WebEncoders.Base64UrlDecode(code);
+            var codeHash = Convert.ToHexString(SHA256.HashData(codeBytes));
+
+            await _cacheService.SetAsync(
+                $"ext_code:{codeHash}",
+                new LoginPayload { User = user, Roles = roles, Claims = claims },
+                TimeSpan.FromMinutes(1));
+
+            //if (!TryGetCodeHash(code, out var codeHash2))
+            //    throw new BadRequestException("Código inválido ou expirado.");
+
+            //string cacheKey = $"ext_code:{codeHash2}";
+
+            //var payload = await _cacheService.GetAsync<LoginPayload>(cacheKey);
+            //var token = _jwtTokenGenerator.GenerateToken(payload.User, payload.Roles, payload.Claims);
 
             // Retornar o token no fragmento (#) para reduzir vazamento via logs/referrers.
-            var parts = new List<string> { $"code={Uri.EscapeDataString(token)}" };
+            var parts = new List<string> { $"code={Uri.EscapeDataString(code)}" };
             if (!string.IsNullOrWhiteSpace(returnUrl))
                 parts.Add($"returnUrl={Uri.EscapeDataString(returnUrl)}");
 
