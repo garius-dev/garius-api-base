@@ -81,41 +81,22 @@ namespace GariusWeb.Api.Application.Services
             hexHash = string.Empty;
             if (string.IsNullOrWhiteSpace(code)) return false;
 
-            // Opcional: limite básico de tamanho (Base64URL de 32B ≈ 43 chars)
             if (code.Length > 512) return false;
 
             try
             {
                 byte[] codeBytes = WebEncoders.Base64UrlDecode(code);
                 byte[] hash = SHA256.HashData(codeBytes);
-                hexHash = Convert.ToHexString(hash); // UPPERCASE
+                hexHash = Convert.ToHexString(hash);
                 return true;
             }
             catch
             {
                 return false;
             }
-
-            //if (!CodeUtils.TryGetCodeHash(request.Code, out var codeHash))
-            //    return BadRequest(ApiResponse<string>.Fail("Código inválido", 400));
         }
 
-        public async Task ExchangeCode(string code)
-        {
-            if (!TryGetCodeHash(code, out var codeHash))
-                throw new BadRequestException("Código inválido ou expirado.");
-
-            string cacheKey = $"ext_code:{codeHash}";
-
-            var payload = await _cacheService.GetAsync<LoginPayload>(cacheKey);
-
-            if (payload == null)
-                throw new BadRequestException("Código inválido ou expirado.");
-
-            await _cacheService.RemoveAsync(cacheKey);
-
-            var token = _jwtTokenGenerator.GenerateToken(payload.User, payload.Roles, payload.Claims);
-        }
+        
 
         public async Task<List<string>> GetRolesAsync()
         {
@@ -483,13 +464,9 @@ namespace GariusWeb.Api.Application.Services
                     throw new ValidationException("Erro ao criar usuário externo.");
             }
 
-            if (!user.EmailConfirmed)
-                throw new UnauthorizedAccessException("E-mail não confirmado.");
-
             var roles = await _userManager.GetRolesAsync(user);
             var claims = await _userManager.GetClaimsAsync(user);
 
-            //var token = _jwtTokenGenerator.GenerateToken(user, roles.ToList(), claims);
             var code = CreateOneTimeCode();
             var codeBytes = WebEncoders.Base64UrlDecode(code);
             var codeHash = Convert.ToHexString(SHA256.HashData(codeBytes));
@@ -499,20 +476,29 @@ namespace GariusWeb.Api.Application.Services
                 new LoginPayload { User = user, Roles = roles, Claims = claims },
                 TimeSpan.FromMinutes(1));
 
-            //if (!TryGetCodeHash(code, out var codeHash2))
-            //    throw new BadRequestException("Código inválido ou expirado.");
-
-            //string cacheKey = $"ext_code:{codeHash2}";
-
-            //var payload = await _cacheService.GetAsync<LoginPayload>(cacheKey);
-            //var token = _jwtTokenGenerator.GenerateToken(payload.User, payload.Roles, payload.Claims);
-
-            // Retornar o token no fragmento (#) para reduzir vazamento via logs/referrers.
             var parts = new List<string> { $"code={Uri.EscapeDataString(code)}" };
             if (!string.IsNullOrWhiteSpace(returnUrl))
                 parts.Add($"returnUrl={Uri.EscapeDataString(returnUrl)}");
 
             return $"{transitionUrl}#{string.Join("&", parts)}";
+        }
+
+        public async Task<string> ExchangeCode(string code)
+        {
+            if (!TryGetCodeHash(code, out var codeHash))
+                throw new BadRequestException("Código inválido ou expirado.");
+
+            string cacheKey = $"ext_code:{codeHash}";
+
+            var payload = await _cacheService.GetAsync<LoginPayload>(cacheKey);
+
+            if (payload == null)
+                throw new BadRequestException("Código inválido ou expirado.");
+
+            await _cacheService.RemoveAsync(cacheKey);
+
+            var token = _jwtTokenGenerator.GenerateToken(payload.User, payload.Roles, payload.Claims);
+            return token;
         }
 
         public async Task ConfirmEmailAsync(string userId, string token)

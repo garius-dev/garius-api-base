@@ -13,6 +13,7 @@ namespace GariusWeb.Api.Application.Interfaces
         ChallengeResult GetExternalLoginChallangeAsync(string provider, string redirectUrl);
         string GetExternalLoginUrl(string provider, string redirectUrl);
         Task<string> ExternalLoginCallbackAsync(string transitionUrl, string? returnUrl);
+        Task<string> ExchangeCode(string code);
         Task ConfirmEmailAsync(string userId, string token);
         Task ForgotPasswordAsync(ForgotPasswordRequest request);
         Task ResetPasswordAsync(ResetPasswordRequest request);
