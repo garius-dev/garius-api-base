@@ -1,6 +1,5 @@
 using Asp.Versioning;
 using Asp.Versioning.ApiExplorer;
-using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Application.Services;
 using GariusWeb.Api.Domain.Entities.Identity;
@@ -11,8 +10,6 @@ using GariusWeb.Api.Infrastructure.Data;
 using GariusWeb.Api.Infrastructure.Middleware;
 using GariusWeb.Api.Infrastructure.Services;
 using GariusWeb.Api.Swagger;
-using Google;
-using Google.Api;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -23,17 +20,11 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
-using Newtonsoft.Json.Serialization;
 using Serilog;
 using Serilog.Events;
 using StackExchange.Redis;
-using Swashbuckle.AspNetCore.SwaggerGen;
-using System;
 using System.Text;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.Threading.RateLimiting;
 using static GariusWeb.Api.Configuration.AppSecrets;
 
 Log.Logger = new LoggerConfiguration()
@@ -62,7 +53,6 @@ builder.Services.AddCustomRateLimiter();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.ConfigureOptions<ConfigureSwaggerOptions>();
-
 
 // --- Configuração do Versionamento do Swagger ---
 builder.Services.AddApiVersioning(options =>
@@ -104,10 +94,9 @@ builder.Services.AddStackExchangeRedisCache(options =>
 });
 Log.Information($"Configuring Redis with: {redisConfig}");
 
-
 // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
 var connectionString = secretConfig.GetSection("ConnectionStringSettings:" + builder.Environment.EnvironmentName).Value;
-if(string.IsNullOrWhiteSpace(connectionString))
+if (string.IsNullOrWhiteSpace(connectionString))
 {
     Log.Fatal("DB: load config failed");
     Environment.Exit(1);
@@ -164,7 +153,6 @@ builder.Services.Configure<CookieAuthenticationOptions>(IdentityConstants.Extern
 
 builder.Services.ConfigureApplicationCookie(options =>
 {
-
     options.LoginPath = "/api/v1/auth/login";
     options.AccessDeniedPath = "/api/v1/auth/access-denied";
     options.Cookie.HttpOnly = true;
@@ -223,8 +211,6 @@ builder.Services.AddAuthentication(options =>
     options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
 });
 
-
-
 // --- CONFIGURAÇÃO DO RESEND ---
 builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
 
@@ -233,6 +219,9 @@ builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
 
 // --- CONFIGURAÇÃO DE SERVIÇOS DE AUTENTICAÇÃO ---
 builder.Services.AddScoped<IAuthService, AuthService>();
+
+// --- CONFIGURAÇÃO DE SERVIÇOS DE ROLES ---
+builder.Services.AddScoped<IRoleService, RoleService>();
 
 // --- CONFIGURAÇÃO DE SERVIÇOS DE CUSTOMIZAÇÃO DO AUTHORIZE ---
 builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, CustomAuthorizationMiddleware>();
@@ -256,7 +245,6 @@ builder.Services.AddCustomCors(builder.Environment);
 builder.Services.AddHealthChecks()
     .AddCheck("self", () => HealthCheckResult.Healthy());
 
-
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
@@ -275,7 +263,6 @@ builder.Services.AddControllers()
         options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
         options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
     });
-
 
 var mux = ConnectionMultiplexer.Connect(redisConfig);
 builder.Services
@@ -346,7 +333,6 @@ if (enableHttpsRedirect)
 {
     app.UseHttpsRedirection();
     Log.Information("HTTPS Redirection: Enabled");
-
 }
 else
 {

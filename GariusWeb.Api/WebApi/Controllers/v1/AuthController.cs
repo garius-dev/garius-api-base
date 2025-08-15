@@ -7,7 +7,6 @@ using GariusWeb.Api.Helpers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using System.Threading.Tasks;
 
 namespace GariusWeb.Api.WebApi.Controllers.v1
 {
@@ -135,87 +134,6 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
             await _authService.ResetPasswordAsync(request);
 
             return Ok(ApiResponse<string>.Ok("Senha redefinida com sucesso"));
-        }
-
-        [HttpGet("get-roles")]
-        //[Authorize]
-        public async Task<IActionResult> GetRoles()
-        {
-
-            await _authService.GetUsersWithRolesAsync(null, 1, 20);
-
-            var roles = await _authService.GetRolesAsync();
-
-            return Ok(ApiResponse<List<string>>.Ok(roles));
-        }
-
-        [HttpGet("get-user-role")]
-        [Authorize]
-        public async Task<IActionResult> GetUserRole([FromQuery] UserEmailRequest request)
-        {
-            if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
-
-            var roles = await _authService.GetUserRoles(request.Email);
-
-            return Ok(ApiResponse<string>.Ok(roles.First()));
-        }
-
-        [HttpPost("create-new-role")]
-        [Authorize]
-        public async Task<IActionResult> CreateNewRole([FromBody] CreateRoleRequest request)
-        {
-            if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
-
-            await _authService.CreateRoleIfNotExistsAsync(request);
-
-
-
-            return Ok(ApiResponse<string>.Ok($"Role '{request.RoleName}' criado com sucesso!"));
-        }
-
-        [HttpPost("add-user-role")]
-        [Authorize]
-        public async Task<IActionResult> AddRoleToUser([FromBody] UserRoleRequest request)
-        {
-            if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
-
-            await _authService.AddRoleToUserAsync(request.Email, request.RoleName);
-
-            return Ok(ApiResponse<string>.Ok($"Role '{request.RoleName}' vinculada ao usuário '{request.Email}' com sucesso!"));
-        }
-
-        [HttpPost("update-user-role")]
-        [Authorize]
-        public async Task<IActionResult> UpdateRoleFromUser([FromBody] UserRoleRequest request)
-        {
-            if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
-
-            await _authService.UpdateUserRoleAsync(request.Email, request.RoleName);
-
-            return Ok(ApiResponse<string>.Ok($"Role do usuário '{request.Email}' alterada com sucesso para '{request.RoleName}'!"));
-        }
-
-        [HttpPost("remove-user-role")]
-        [Authorize]
-        public async Task<IActionResult> RemoveRoleFromUser([FromBody] UserEmailRequest request)
-        {
-            if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
-
-            await _authService.RemoveRoleFromUserAsync(request.Email, "all");
-
-            return Ok(ApiResponse<string>.Ok($"Roles desvinculadas do usuário '{request.Email}' com sucesso!"));
-        }
-
-        [HttpGet("get-users")]
-        public async Task<IActionResult> GetUsers([FromQuery] string? search, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
-        {
-            var result = await _authService.GetUsersWithRolesAsync(search, page, pageSize);
-            return Ok(result);
         }
     }
 }

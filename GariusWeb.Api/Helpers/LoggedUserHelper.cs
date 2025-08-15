@@ -60,6 +60,7 @@ namespace GariusWeb.Api.Helpers
 
             return new LoggedUserInfo
             {
+                UserId = appUser.Id,
                 Email = email,
                 Name = name,
                 Roles = roles ?? new List<string>(),

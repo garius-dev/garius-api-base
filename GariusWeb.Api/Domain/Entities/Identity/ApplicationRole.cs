@@ -15,5 +15,7 @@ namespace GariusWeb.Api.Domain.Entities.Identity
 
         public string? Description { get; set; }
         public int Level { get; set; }
+
+        public virtual ICollection<IdentityUserRole<Guid>> UserRoles { get; set; } = new List<IdentityUserRole<Guid>>();
     }
 }

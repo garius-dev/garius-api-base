@@ -15,5 +15,7 @@ namespace GariusWeb.Api.Domain.Entities.Identity
         public string? ExternalProvider { get; set; } // Google, Microsoft
 
         public Guid? TenantId { get; set; } // futuro suporte a SaaS
+
+        public virtual ICollection<IdentityUserRole<Guid>> UserRoles { get; set; } = new List<IdentityUserRole<Guid>>();
     }
 }
