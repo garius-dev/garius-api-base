@@ -46,6 +46,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Folder Include="Application\Dtos\Pagination\" />
     <Folder Include="Application\Mappers\" />
     <Folder Include="Infrastructure\Data\Migrations\" />
     <Folder Include="Infrastructure\Data\Repositories\" />

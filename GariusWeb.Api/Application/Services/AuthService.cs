@@ -224,12 +224,10 @@ namespace GariusWeb.Api.Application.Services
 
         public async Task ConfirmEmailAsync(string userId, string token)
         {
-            // Mensagem neutra: não diferenciar usuário inválido
             var user = await _userManager.FindByIdAsync(userId);
             if (user == null)
                 throw new BadRequestException("Link inválido ou expirado.");
 
-            // Decodifica o token Base64Url gerado no envio do e-mail
             string decodedToken;
             try
             {
@@ -298,11 +296,8 @@ namespace GariusWeb.Api.Application.Services
                 throw new BadRequestException("Não foi possível redefinir a senha. Link inválido ou expirado.");
             }
 
-            //var result = await _userManager.ResetPasswordAsync(user, request.Token, request.NewPassword);
             var result = await _userManager.ResetPasswordAsync(user, decodedToken, request.NewPassword);
 
-            // Para não vazar informações, não expor detalhes de falha de token/senha ao cliente final.
-            // Ainda assim, se quiser padronizar como 400, use BadRequestException com mensagem genérica.
             if (!result.Succeeded)
                 throw new BadRequestException("Não foi possível redefinir a senha. Link inválido ou expirado.");
         }
