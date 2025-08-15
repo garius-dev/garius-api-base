@@ -102,6 +102,9 @@ namespace GariusWeb.Api.Application.Services
                 IsActive = true
             };
 
+            user.Fullname = $"{user.FirstName} {user.LastName}".Trim();
+            user.NormalizedFullName = user.Fullname.ToUpperInvariant();
+
             var result = await _userManager.CreateAsync(user, request.Password);
             if (!result.Succeeded)
                 throw new ValidationException(string.Join("; ", result.Errors.Select(e => e.Description)));
@@ -174,6 +177,9 @@ namespace GariusWeb.Api.Application.Services
                     ExternalProvider = info.LoginProvider,
                     CreatedAt = DateTime.UtcNow
                 };
+
+                user.Fullname = $"{user.FirstName} {user.LastName}".Trim();
+                user.NormalizedFullName = user.Fullname.ToUpperInvariant();
 
                 var result = await _userManager.CreateAsync(user);
 

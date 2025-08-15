@@ -13,6 +13,10 @@ namespace GariusWeb.Api.Infrastructure.Data
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
+
+            builder.Entity<ApplicationUser>()
+                .HasIndex(u => new { u.NormalizedUserName, u.NormalizedEmail, u.NormalizedFullName })
+                .HasDatabaseName("IX_Users_Search");
         }
     }
 }

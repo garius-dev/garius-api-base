@@ -29,7 +29,6 @@ namespace GariusWeb.Api.Helpers
             if (httpContext == null || httpContext.User == null)
                 throw new UnauthorizedAccessAppException("Usuário não autenticado.");
 
-
             var userPrincipal = httpContext?.User;
             if (userPrincipal == null || userPrincipal.Identity == null || !userPrincipal.Identity.IsAuthenticated)
                 throw new UnauthorizedAccessAppException("Usuário não autenticado.");
@@ -56,7 +55,6 @@ namespace GariusWeb.Api.Helpers
                     topRoleLevel = await roleObjs.MinAsync(r => (int?)r.Level) ?? 999;
                 }
             }
-
 
             return new LoggedUserInfo
             {

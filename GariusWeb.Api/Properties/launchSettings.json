@@ -12,8 +12,8 @@
       "commandName": "Project",
       "environmentVariables": {
         "ASPNETCORE_ENVIRONMENT": "Development",
-        "Security__EnableHttpsRedirection": "false",
-        "Swagger__EnableUI": "true"
+        "HTTPS_REDIRECTION_ENABLED": "false",
+        "DEV_ENDPOINTS_ENABLED": "true"
       },
       "dotnetRunMessages": true,
       "applicationUrl": "https://localhost:7047;http://localhost:5094"

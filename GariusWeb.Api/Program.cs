@@ -7,9 +7,11 @@ using GariusWeb.Api.Domain.Interfaces;
 using GariusWeb.Api.Extensions;
 using GariusWeb.Api.Helpers;
 using GariusWeb.Api.Infrastructure.Data;
+using GariusWeb.Api.Infrastructure.Data.Repositories;
 using GariusWeb.Api.Infrastructure.Middleware;
 using GariusWeb.Api.Infrastructure.Services;
 using GariusWeb.Api.Swagger;
+using GariusWeb.Api.WebApi.Dev;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -17,7 +19,6 @@ using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Distributed;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
@@ -26,6 +27,8 @@ using StackExchange.Redis;
 using System.Text;
 using System.Text.Json;
 using static GariusWeb.Api.Configuration.AppSecrets;
+
+//Add-Migration AddUsersSearchIndex -Context ApplicationDbContext
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Debug()
@@ -39,10 +42,10 @@ Log.Logger = new LoggerConfiguration()
 var builder = WebApplication.CreateBuilder(args);
 
 var enableHttpsRedirect =
-    builder.Configuration.GetValue<bool?>("Security:EnableHttpsRedirection") ?? true;
+    builder.Configuration.GetValue<bool?>("HTTPS_REDIRECTION_ENABLED") ?? true;
 
-var enableSwaggerUI =
-    builder.Configuration.GetValue<bool?>("Swagger:EnableUI") ?? false;
+bool enableDebugEndpoints =
+    builder.Configuration.GetValue<bool?>("DEV_ENDPOINTS_ENABLED") ?? false;
 
 builder.Host.UseSerilog();
 
@@ -223,6 +226,12 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 // --- CONFIGURAÇÃO DE SERVIÇOS DE ROLES ---
 builder.Services.AddScoped<IRoleService, RoleService>();
 
+// --- CONFIGURAÇÃO DE USUÁRIOS ---
+builder.Services.AddScoped<IUserService, UserService>();
+
+// --- CONFIGURAÇÃO FO REPOSITÓRIO GENÉRICO DE BUSCA ---
+builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
+
 // --- CONFIGURAÇÃO DE SERVIÇOS DE CUSTOMIZAÇÃO DO AUTHORIZE ---
 builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, CustomAuthorizationMiddleware>();
 
@@ -308,7 +317,7 @@ app.UseSerilogRequestLogging();
 
 // --- Configure the HTTP request pipeline ---
 var provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
-if (app.Environment.IsDevelopment() || enableSwaggerUI)
+if (app.Environment.IsDevelopment() || enableDebugEndpoints)
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
@@ -323,6 +332,8 @@ if (app.Environment.IsDevelopment() || enableSwaggerUI)
         options.DefaultModelExpandDepth(-1);
     });
 }
+
+app.MapDevEndpoints();
 
 app.UseRouting();
 
@@ -362,23 +373,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// --- CRIAÇÃO DO ENDPOINT DE TESTE DE PING DO REDIS ---
-app.MapGet("/redis-ping", async (IDistributedCache cache) =>
-{
-    const string key = "cache-teste";
-    var valor = await cache.GetStringAsync(key);
-
-    if (valor != null)
-        return Results.Ok(new { valor, deCache = true });
-
-    valor = $"Gerado em {DateTime.Now}";
-    await cache.SetStringAsync(key, valor, new DistributedCacheEntryOptions
-    {
-        AbsoluteExpirationRelativeToNow = TimeSpan.FromSeconds(30)
-    });
-
-    return Results.Ok(new { valor, deCache = false });
-});
+/////////////////////////////////////////////////////////////////////////////////////////////
 
 // --- CRIAÇÃO DO ENDPOINT DE HEALTH CHECK ---
 app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions

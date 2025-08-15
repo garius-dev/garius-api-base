@@ -34,7 +34,7 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         public async Task<IActionResult> Register([FromBody] RegisterRequest request)
         {
             if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida");
+                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
 
             await _authService.RegisterAsync(request);
             return Ok(ApiResponse<string>.Ok("Usuário registrado com sucesso. Verifique seu e-mail."));
@@ -44,8 +44,8 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         [EnableRateLimiting(RateLimiterExtensions.LoginPolicy)]
         public async Task<IActionResult> Login([FromBody] LoginRequest request)
         {
-            if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida");
+            if(!ModelState.IsValid)
+                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
 
             var token = await _authService.LoginAsync(request);
 
@@ -118,7 +118,7 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         public async Task<IActionResult> ForgotPassword([FromBody] ForgotPasswordRequest request)
         {
             if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida");
+                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
 
             await _authService.ForgotPasswordAsync(request);
 
@@ -129,7 +129,7 @@ namespace GariusWeb.Api.WebApi.Controllers.v1
         public async Task<IActionResult> ResetPassword([FromBody] ResetPasswordRequest request)
         {
             if (!ModelState.IsValid)
-                throw new ValidationException("Requisição inválida");
+                throw new ValidationException("Requisição inválida: " + ModelState.ToFormattedErrorString());
 
             await _authService.ResetPasswordAsync(request);
 

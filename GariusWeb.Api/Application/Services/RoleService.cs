@@ -1,5 +1,4 @@
 ﻿using GariusWeb.Api.Application.Dtos.Auth;
-using GariusWeb.Api.Application.Dtos.UserAndRoles;
 using GariusWeb.Api.Application.Exceptions;
 using GariusWeb.Api.Application.Interfaces;
 using GariusWeb.Api.Domain.Entities.Identity;
@@ -28,6 +27,13 @@ namespace GariusWeb.Api.Application.Services
             _logger = logger;
         }
 
+        private class UserInfo
+        {
+            public ApplicationUser User { get; set; } = default!;
+            public IList<string> Roles { get; set; } = new List<string>();
+            public int TopRoleLevel { get; set; } = int.MaxValue;
+        }
+
         public async Task CreateRoleAsync(CreateRoleRequest request)
         {
             if (request is null)
@@ -51,7 +57,7 @@ namespace GariusWeb.Api.Application.Services
                 roleName, request.RoleLevel, loggedUserInfo.UserId.ToString());
         }
 
-        public async Task<List<string>> GetRolesAsync()
+        public async Task<List<string>> GetRolesAsync(CancellationToken cancellationToken = default)
         {
             var loggedUserInfo = await _loggedUserHelper.GetLoggedUserInfoAsync();
 
@@ -60,13 +66,13 @@ namespace GariusWeb.Api.Application.Services
                 .Where(r => r.Level >= loggedUserInfo.TopRoleLevel)
                 .OrderBy(r => r.Level).ThenBy(r => r.Name)
                 .Select(r => r.Name!)
-                .ToListAsync();
+                .ToListAsync(cancellationToken);
         }
 
-        public async Task<List<string>> GetUserRolesAsync(string userEmail)
+        public async Task<List<string>> GetUserRolesAsync(string userEmail, CancellationToken cancellationToken = default)
         {
             var loggedUserInfo = await _loggedUserHelper.GetLoggedUserInfoAsync();
-            var targetUserDetails = await FindUserDetailsByEmailAsync(userEmail);
+            var targetUserDetails = await FindUserDetailsByEmailAsync(userEmail, cancellationToken);
 
             // Regra: só pode visualizar/gerenciar quem tem nível estritamente superior (menor número).
             EnsureCanViewOrManageUser(loggedUserInfo.TopRoleLevel, targetUserDetails.TopRoleLevel);
@@ -74,13 +80,13 @@ namespace GariusWeb.Api.Application.Services
             return targetUserDetails.Roles.ToList();
         }
 
-        public async Task AddRoleToUserAsync(UserRoleRequest request)
+        public async Task AddRoleToUserAsync(UserRoleRequest request, CancellationToken cancellationToken = default)
         {
             if (request is null)
                 throw new BadRequestException("Requisição inválida.");
 
             var loggedUserInfo = await _loggedUserHelper.GetLoggedUserInfoAsync();
-            var targetUserDetails = await FindUserDetailsByEmailAsync(request.Email);
+            var targetUserDetails = await FindUserDetailsByEmailAsync(request.Email, cancellationToken);
 
             if (targetUserDetails.Roles.Any())
                 throw new ConflictException("Usuário já possui uma role. Utilize a rota de atualização.");
@@ -98,13 +104,13 @@ namespace GariusWeb.Api.Application.Services
                 roleToAdd.Name, targetUserDetails.User.Id, loggedUserInfo.UserId);
         }
 
-        public async Task UpdateUserRoleAsync(UserRoleRequest request)
+        public async Task UpdateUserRoleAsync(UserRoleRequest request, CancellationToken cancellationToken = default)
         {
             if (request is null)
                 throw new BadRequestException("Requisição inválida.");
 
             var loggedUserInfo = await _loggedUserHelper.GetLoggedUserInfoAsync();
-            var targetUserDetails = await FindUserDetailsByEmailAsync(request.Email);
+            var targetUserDetails = await FindUserDetailsByEmailAsync(request.Email, cancellationToken);
 
             EnsureCanViewOrManageUser(loggedUserInfo.TopRoleLevel, targetUserDetails.TopRoleLevel);
 
@@ -128,13 +134,13 @@ namespace GariusWeb.Api.Application.Services
                 targetUserDetails.User.Id, newRole.Name, loggedUserInfo.UserId);
         }
 
-        public async Task RemoveAllRolesFromUserAsync(UserEmailRequest request)
+        public async Task RemoveAllRolesFromUserAsync(UserEmailRequest request, CancellationToken cancellationToken = default)
         {
             if (request is null)
                 throw new BadRequestException("Requisição inválida.");
 
             var loggedUserInfo = await _loggedUserHelper.GetLoggedUserInfoAsync();
-            var targetUserDetails = await FindUserDetailsByEmailAsync(request.Email);
+            var targetUserDetails = await FindUserDetailsByEmailAsync(request.Email, cancellationToken);
             if (!targetUserDetails.Roles.Any()) return;
 
             EnsureCanViewOrManageUser(loggedUserInfo.TopRoleLevel, targetUserDetails.TopRoleLevel);
@@ -166,14 +172,14 @@ namespace GariusWeb.Api.Application.Services
                 throw new UnauthorizedAccessAppException("Você não tem permissão para visualizar/gerenciar este usuário.");
         }
 
-        private async Task<UserDetailsDto> FindUserDetailsByEmailAsync(string email)
+        private async Task<UserInfo> FindUserDetailsByEmailAsync(string email, CancellationToken cancellationToken = default)
         {
             var normalizedEmail = NormalizeEmail(email);
 
             var userDetailsQuery =
                 from user in _userManager.Users.AsNoTracking()
                 where user.NormalizedEmail == normalizedEmail
-                select new UserDetailsDto
+                select new UserInfo
                 {
                     User = user,
                     Roles = user.UserRoles
@@ -192,7 +198,7 @@ namespace GariusWeb.Api.Application.Services
                         .Min()
                 };
 
-            var userDetails = await userDetailsQuery.FirstOrDefaultAsync();
+            var userDetails = await userDetailsQuery.FirstOrDefaultAsync(cancellationToken);
 
             if (userDetails == null)
                 throw new NotFoundException("Usuário não encontrado.");
