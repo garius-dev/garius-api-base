@@ -13,11 +13,17 @@ namespace GariusWeb.Api.WebApi.Dev
         public static IEndpointRouteBuilder MapDevEndpoints(this IEndpointRouteBuilder app)
         {
             var env = app.ServiceProvider.GetRequiredService<IHostEnvironment>();
-            if (!env.IsDevelopment()) return app;
 
             var cfg = app.ServiceProvider.GetRequiredService<IConfiguration>();
             var enabled = cfg.GetValue("DEV_ENDPOINTS_ENABLED", true);
-            if (!enabled) return app;
+
+            if (!env.IsDevelopment())
+            {
+                if (!enabled)
+                {
+                    return app;
+                }
+            }
 
             var group = app.MapGroup("/dev")
                        .WithTags("Dev");

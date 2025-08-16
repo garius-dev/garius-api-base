@@ -33,7 +33,7 @@ COPY --from=publish /app/publish .
 RUN mkdir -p /app/secrets
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-  CMD curl -f http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=2m --timeout=10s --start-period=1m --retries=3 \
+  CMD curl -f http://localhost:8080/healthz  || exit 1
 
 ENTRYPOINT ["dotnet", "GariusWeb.Api.dll"]

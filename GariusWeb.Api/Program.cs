@@ -16,13 +16,13 @@ using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
-using Serilog.Events;
 using StackExchange.Redis;
 using System.Text;
 using System.Text.Json;
@@ -30,34 +30,74 @@ using static GariusWeb.Api.Configuration.AppSecrets;
 
 //Add-Migration AddUsersSearchIndex -Context ApplicationDbContext
 
-Log.Logger = new LoggerConfiguration()
-    .MinimumLevel.Debug()
-    .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
-    .MinimumLevel.Override("Microsoft.AspNetCore", LogEventLevel.Warning)
-    .Enrich.FromLogContext()
-    .WriteTo.Console()
-    //.WriteTo.Seq("http://localhost:5341") // Descomente se for usar Seq
-    .CreateLogger();
-
 var builder = WebApplication.CreateBuilder(args);
 
+// --- CONFIGURAÇÃO DAS VARIÁVEIS DE AMBIENTE ---
 var enableHttpsRedirect =
     builder.Configuration.GetValue<bool?>("HTTPS_REDIRECTION_ENABLED") ?? true;
 
 bool enableDebugEndpoints =
     builder.Configuration.GetValue<bool?>("DEV_ENDPOINTS_ENABLED") ?? false;
 
-builder.Host.UseSerilog();
+bool enableSwagger =
+    builder.Configuration.GetValue<bool?>("SWAGGER_ENABLED") ?? false;
 
-// --- ALTERADO: Configuração do Rate Limiting ---
+bool migrateOnly =
+    builder.Configuration.GetValue<bool?>("MIGRATE_ONLY") ?? false;
+
+// --- CONFIGURAÇÃO DO LOG ---
+Log.Logger = new LoggerConfiguration()
+    .WriteTo.Console()
+    .CreateBootstrapLogger();
+
+if (builder.Environment.IsDevelopment())
+{
+    Serilog.Debugging.SelfLog.Enable(m => Console.Error.WriteLine(m));
+}
+
+builder.Host.UseSerilog((ctx, services, lc) => lc
+    .ReadFrom.Configuration(ctx.Configuration)
+    .ReadFrom.Services(services)
+    .Enrich.FromLogContext()
+    .Enrich.WithProperty("app", "garius-api")
+    .Enrich.WithProperty("env", ctx.HostingEnvironment.EnvironmentName));
+
+// --- CONFIGURAÇÃO DO GOOGLE SECRETS ---
+var secretConfig = builder.AddGoogleSecrets("GariusTechAppSecrets");
+
+// --- ADICIONA O GOOGLE SECRETS À CONFIGURAÇÃO GLOBAL ---
+builder.Configuration.AddConfiguration(secretConfig);
+
+// --- CONFIGURAÇÃO DE CONEXÃO DO REDIS E DB ---
+var redisConfig = builder.Configuration[$"RedisSettings:{builder.Environment.EnvironmentName}:Configuration"];
+var connectionString = builder.Configuration[$"ConnectionStringSettings:{builder.Environment.EnvironmentName}"];
+
+if (string.IsNullOrEmpty(connectionString))
+{
+    Log.Fatal("DB: GET CONNECTION FAILED.");
+    Log.CloseAndFlush();
+    Environment.Exit(1);
+}
+
+if (string.IsNullOrWhiteSpace(redisConfig))
+{
+    Log.Fatal("REDIS: GET CONNECTION FAILED.");
+    Log.CloseAndFlush();
+    Environment.Exit(1);
+}
+
+// --- CONFIGURAÇÃO DO RATE LIMITER ---
 builder.Services.AddCustomRateLimiter();
 
-// --- Configuração do Swagger ---
+// --- CONFIGURAÇÃO DO CORS ---
+builder.Services.AddCustomCors(builder.Environment);
+
+// --- CONFIGURAÇÃO DO SWAGGER ---
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.ConfigureOptions<ConfigureSwaggerOptions>();
 
-// --- Configuração do Versionamento do Swagger ---
+// --- CONFIGURAÇÃO DO VERSIONAMENTO DO SWAGGER ---
 builder.Services.AddApiVersioning(options =>
 {
     options.DefaultApiVersion = new ApiVersion(1, 0);
@@ -70,41 +110,24 @@ builder.Services.AddApiVersioning(options =>
     options.SubstituteApiVersionInUrl = true;
 });
 
-// --- Configuração do Google Secrets ---
-var secretConfig = builder.AddGoogleSecrets("GariusTechAppSecrets");
-
-builder.Services.AddValidatedSettings<ConnectionStringSettings>(secretConfig, "ConnectionStringSettings");
-builder.Services.AddValidatedSettings<GoogleExternalAuthSettings>(secretConfig, "GoogleExternalAuthSettings");
-builder.Services.AddValidatedSettings<MicrosoftExternalAuthSettings>(secretConfig, "MicrosoftExternalAuthSettings");
-builder.Services.AddValidatedSettings<CloudflareSettings>(secretConfig, "CloudflareSettings");
-builder.Services.AddValidatedSettings<CloudinarySettings>(secretConfig, "CloudinarySettings");
-builder.Services.AddValidatedSettings<ResendSettings>(secretConfig, "ResendSettings");
-builder.Services.AddValidatedSettings<JwtSettings>(secretConfig, "JwtSettings");
-builder.Services.AddValidatedSettings<RedisSettings>(secretConfig, "RedisSettings");
+// --- LOAD DAS SECRETS ---
+builder.Services.AddValidatedSettings<ConnectionStringSettings>(builder.Configuration, "ConnectionStringSettings");
+builder.Services.AddValidatedSettings<GoogleExternalAuthSettings>(builder.Configuration, "GoogleExternalAuthSettings");
+builder.Services.AddValidatedSettings<MicrosoftExternalAuthSettings>(builder.Configuration, "MicrosoftExternalAuthSettings");
+builder.Services.AddValidatedSettings<CloudflareSettings>(builder.Configuration, "CloudflareSettings");
+builder.Services.AddValidatedSettings<CloudinarySettings>(builder.Configuration, "CloudinarySettings");
+builder.Services.AddValidatedSettings<ResendSettings>(builder.Configuration, "ResendSettings");
+builder.Services.AddValidatedSettings<JwtSettings>(builder.Configuration, "JwtSettings");
+builder.Services.AddValidatedSettings<RedisSettings>(builder.Configuration, "RedisSettings");
 
 // --- CONFIGURAÇÃO DO REDIS ---
-var redisConfig = secretConfig.GetSection($"RedisSettings:{builder.Environment.EnvironmentName}:Configuration").Value;
-if (string.IsNullOrWhiteSpace(redisConfig))
-{
-    Log.Fatal("Redis: load config failed");
-    Environment.Exit(1);
-}
-
 builder.Services.AddStackExchangeRedisCache(options =>
 {
     options.Configuration = redisConfig;
     options.InstanceName = "Garius:";
 });
-Log.Information($"Configuring Redis with: {redisConfig}");
 
 // --- CONFIGURAÇÃO DO BANCO DE DADOS ---
-var connectionString = secretConfig.GetSection("ConnectionStringSettings:" + builder.Environment.EnvironmentName).Value;
-if (string.IsNullOrWhiteSpace(connectionString))
-{
-    Log.Fatal("DB: load config failed");
-    Environment.Exit(1);
-}
-
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString, npgsqlOptionsAction: sqlOptions =>
     {
@@ -114,7 +137,7 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
             errorCodesToAdd: null);
     }));
 
-// --- Configuração do User Identity ---
+// --- CONFIGURAÇÃO DO USER IDENTITY ---
 builder.Services
     .AddIdentity<ApplicationUser, ApplicationRole>(options =>
     {
@@ -144,9 +167,7 @@ builder.Services
     .AddEntityFrameworkStores<ApplicationDbContext>()
     .AddDefaultTokenProviders();
 
-// --- CONFIGURAÇÃO DO JWT ---
-builder.Services.AddScoped<IJwtTokenGenerator, JwtTokenGenerator>();
-
+// --- CONFIGURAÇÃO DOS COOKIES DE AUTENTICAÇÃO ---
 builder.Services.Configure<CookieAuthenticationOptions>(IdentityConstants.ExternalScheme, options =>
 {
     options.Cookie.SameSite = SameSiteMode.None;
@@ -176,7 +197,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    var jwtConfig = secretConfig.GetSection("JwtSettings").Get<JwtSettings>()!;
+    var jwtConfig = builder.Configuration.GetSection("JwtSettings").Get<JwtSettings>()!;
     options.RequireHttpsMetadata = !builder.Environment.IsDevelopment();
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
@@ -193,7 +214,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddGoogle("Google", options =>
 {
-    var google = secretConfig.GetSection("GoogleExternalAuthSettings").Get<GoogleExternalAuthSettings>()!;
+    var google = builder.Configuration.GetSection("GoogleExternalAuthSettings").Get<GoogleExternalAuthSettings>()!;
     options.CorrelationCookie.SameSite = SameSiteMode.None;
     options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
     options.ClientId = google.ClientId;
@@ -205,7 +226,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddMicrosoftAccount("Microsoft", options =>
 {
-    var ms = secretConfig.GetSection("MicrosoftExternalAuthSettings").Get<MicrosoftExternalAuthSettings>()!;
+    var ms = builder.Configuration.GetSection("MicrosoftExternalAuthSettings").Get<MicrosoftExternalAuthSettings>()!;
     options.ClientId = ms.ClientId;
     options.ClientSecret = ms.ClientSecret;
     options.SaveTokens = true;
@@ -213,6 +234,47 @@ builder.Services.AddAuthentication(options =>
     options.CorrelationCookie.SameSite = SameSiteMode.None;
     options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.Always;
 });
+
+// --- CONFIGURAÇÃO DO HEALTH CHECK ---
+builder.Services.AddHealthChecks()
+    .AddCheck<HealthCheckHelper>("config")
+    .AddNpgSql(connectionString, name: "PostgreSQL",
+               failureStatus: HealthStatus.Unhealthy,
+               tags: new[] { "db" })
+    .AddRedis(redisConfig, name: "Redis",
+              failureStatus: HealthStatus.Unhealthy,
+              tags: new[] { "cache" })
+    .AddCheck("self", () => HealthCheckResult.Healthy("UP"));
+
+// --- CONFIGURAÇÃO DOS HEADERS DE SEGURANÇA ---
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
+
+// --- CONFIGURAÇÃO DO DATA PROTECTION ---
+var mux = ConnectionMultiplexer.Connect(redisConfig);
+builder.Services
+    .AddDataProtection()
+    .SetApplicationName("Garius.Api")
+    .SetDefaultKeyLifetime(TimeSpan.FromDays(90))
+    .PersistKeysToStackExchangeRedis(mux, "DataProtection-Keys");
+
+// --- CONFIGURAÇÃO DOS CONTROLLERS ---
+builder.Services.AddControllers()
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
+    })
+    .AddJsonOptions(options =>
+    {
+        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+    });
+
+// ### INJEÇÃO DE DEPENDÊNCIAS ###
 
 // --- CONFIGURAÇÃO DO RESEND ---
 builder.Services.AddHttpClient<IEmailSender, ResendEmailSender>();
@@ -247,46 +309,26 @@ builder.Services.AddAuthorization(options =>
     PoliciesExtensions.ConfigurePolicies(options);
 });
 
-// --- CONFIGURAÇÃO DO CORS ---
-builder.Services.AddCustomCors(builder.Environment);
-
-// --- CONFIGURAÇÃO DO HealthChecks ---
-builder.Services.AddHealthChecks()
-    .AddCheck("self", () => HealthCheckResult.Healthy());
-
-builder.Services.Configure<ForwardedHeadersOptions>(options =>
-{
-    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.KnownNetworks.Clear();
-    options.KnownProxies.Clear();
-});
-
-// --- Add services to the container ---
-builder.Services.AddControllers()
-    .ConfigureApiBehaviorOptions(options =>
-    {
-        options.SuppressModelStateInvalidFilter = true;
-    })
-    .AddJsonOptions(options =>
-    {
-        options.JsonSerializerOptions.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
-        options.JsonSerializerOptions.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
-    });
-
-var mux = ConnectionMultiplexer.Connect(redisConfig);
-builder.Services
-    .AddDataProtection()
-    .SetApplicationName("Garius.Api")                 // isola entre apps
-    .SetDefaultKeyLifetime(TimeSpan.FromDays(90))     // rotação automática
-    .PersistKeysToStackExchangeRedis(mux, "DataProtection-Keys"); // key prefix no Redis
-Log.Information("Data Protection keys are being stored in Redis...");
-
-builder.Host.UseSerilog();
-
 var app = builder.Build();
 
+// --- CONFIGURAÇÃO DO LOG DE REQUISIÇÕES ---
+app.UseSerilogRequestLogging(o =>
+{
+    o.EnrichDiagnosticContext = (d, ctx) =>
+    {
+        d.Set("RequestPath", ctx.Request.Path);
+        d.Set("ClientIP", ctx.Connection.RemoteIpAddress?.ToString() ?? "UNKNOWN");
+        d.Set("XForwardedFor", ctx.Request.Headers["X-Forwarded-For"].ToString());
+        d.Set("CFConnectingIP", ctx.Request.Headers["CF-Connecting-IP"].ToString());
+        d.Set("UserAgent", ctx.Request.Headers.UserAgent.ToString());
+        d.Set("StatusCode", ctx.Response?.StatusCode ?? 0);
+    };
+});
+
+app.UseForwardedHeaders();
+
 // --- CONFIGURAÇÃO DA BUILD DE MIGRATION ---
-if (args.Contains("--migrate-only"))
+if (migrateOnly)
 {
     using (var scope = app.Services.CreateScope())
     {
@@ -294,30 +336,30 @@ if (args.Contains("--migrate-only"))
 
         try
         {
-            Console.WriteLine("Running migrations...");
+            Log.Information("Running migrations...");
             await context.Database.MigrateAsync();
-            Console.WriteLine("Migrations completed successfully.");
+            Log.Information("Migrations completed successfully.");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Migration failed: {ex.Message}");
+            Log.Fatal($"Migration failed: {ex.Message}");
+            Log.CloseAndFlush();
             Environment.Exit(1);
         }
     }
 
+    Log.CloseAndFlush();
     Environment.Exit(0);
 }
 
-app.UseForwardedHeaders();
+Log.Information("-----> OK");
 
-// --- Configuração dos Middlewares ---
+// --- CONFIGURAÇÃO DO MIDDLEWARE DE TRATAMENTO DE EXCEÇÕES ---
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-app.UseSerilogRequestLogging();
-
-// --- Configure the HTTP request pipeline ---
+// --- CONFIGURAÇÃO DO SWAGGER UI ---
 var provider = app.Services.GetRequiredService<IApiVersionDescriptionProvider>();
-if (app.Environment.IsDevelopment() || enableDebugEndpoints)
+if (app.Environment.IsDevelopment() || enableSwagger)
 {
     app.UseSwagger();
     app.UseSwaggerUI(options =>
@@ -333,23 +375,22 @@ if (app.Environment.IsDevelopment() || enableDebugEndpoints)
     });
 }
 
+// --- CONFIGURAÇÃO DOS ENDPOINTS DE DESENVOLVIMENTO ---
 app.MapDevEndpoints();
 
+// --- CONFIGURAÇÃO DO PIPELINE DE REQUISIÇÕES ---
 app.UseRouting();
 
-app.UseCustomCors();
 app.UseRateLimiter();
+app.UseCustomCors();
 
+// --- HABILITA A REDIRECIONA DE HTTP PARA HTTPS ---
 if (enableHttpsRedirect)
 {
     app.UseHttpsRedirection();
-    Log.Information("HTTPS Redirection: Enabled");
-}
-else
-{
-    Log.Information("HTTPS Redirection: Disabled");
 }
 
+// --- CONFIGURAÇÃO DOS HEADERS DE SEGURANÇA ---
 var policy = new HeaderPolicyCollection()
     .AddDefaultSecurityHeaders()
     .RemoveServerHeader()
@@ -357,7 +398,7 @@ var policy = new HeaderPolicyCollection()
     {
         policyBuilder.AddDefaultSrc().Self();
         policyBuilder.AddScriptSrc().Self();
-        policyBuilder.AddStyleSrc().Self().UnsafeInline();
+        policyBuilder.AddStyleSrc().Self().WithNonce();
         policyBuilder.AddImgSrc().Self().Data();
         policyBuilder.AddFontSrc().Self();
         policyBuilder.AddConnectSrc().Self();
@@ -368,35 +409,41 @@ var policy = new HeaderPolicyCollection()
 
 app.UseSecurityHeaders(policy);
 
+// --- CONFIGURAÇÃO DA AUTENTICAÇÃO E AUTORIZAÇÃO ---
 app.UseAuthentication();
 app.UseAuthorization();
 
+// --- CONFIGURAÇÃO DOS CONTROLLERS ---
 app.MapControllers();
 
-/////////////////////////////////////////////////////////////////////////////////////////////
-
 // --- CRIAÇÃO DO ENDPOINT DE HEALTH CHECK ---
-app.MapHealthChecks("/health", new Microsoft.AspNetCore.Diagnostics.HealthChecks.HealthCheckOptions
+app.MapHealthChecks("/health", new HealthCheckOptions { Predicate = _ => false });
+app.MapHealthChecks("/healthz", new HealthCheckOptions
 {
+    Predicate = _ => true,
     ResponseWriter = async (context, report) =>
     {
         context.Response.ContentType = "application/json";
-        var response = new
+        var result = System.Text.Json.JsonSerializer.Serialize(new
         {
             status = report.Status.ToString(),
-            environment = builder.Environment.EnvironmentName,
-            redisConfig = redisConfig,
-            checks = report.Entries.Select(x => new
+            details = report.Entries.Select(e => new
             {
-                name = x.Key,
-                status = x.Value.Status.ToString(),
-                exception = x.Value.Exception?.Message,
-                duration = x.Value.Duration.ToString()
-            }),
-            duration = report.TotalDuration.ToString()
-        };
-
-        await context.Response.WriteAsync(System.Text.Json.JsonSerializer.Serialize(response));
+                key = e.Key,
+                status = e.Value.Status.ToString(),
+                description = string.IsNullOrEmpty(e.Value.Description)
+                    ? e.Value.Status switch
+                    {
+                        HealthStatus.Healthy => "UP",
+                        HealthStatus.Unhealthy => "DOWN",
+                        HealthStatus.Degraded => "DEGRADED",
+                        _ => "UNKNOWN"
+                    }
+                    : e.Value.Description,
+                data = e.Value.Data
+            })
+        });
+        await context.Response.WriteAsync(result);
     }
 });
 

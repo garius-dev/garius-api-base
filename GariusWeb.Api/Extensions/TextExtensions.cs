@@ -76,5 +76,29 @@ namespace GariusWeb.Api.Extensions
             return sb.ToString();
         }
 
+        public static string MaskConnectionString(this string? connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+                return string.Empty;
+            // Divide a string em partes
+            var parts = connectionString.Split(';');
+            // Cria uma nova lista para armazenar as partes mascaradas
+            return string.Join(';', parts.Select(p =>
+                p.StartsWith("Password=", StringComparison.OrdinalIgnoreCase) ? "Password=***" : p));
+        }
+
+        public static bool ToBoolean(this string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+            return value.Trim().ToLower() switch
+            {
+                "true" => true,
+                "1" => true,
+                "yes" => true,
+                "y" => true,
+                _ => false
+            };
+        }
     }
 }
